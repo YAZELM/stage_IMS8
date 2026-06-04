@@ -1,0 +1,13 @@
+name: vivid-dvs-comparison
+channels:
+  - conda-forge
+dependencies:
+  - python>=3.9
+  - numpy
+  - pandas
+  - matplotlib
+  - opencv
+  - pyyaml
+  - h5py
+  - pip
+  - rosbags

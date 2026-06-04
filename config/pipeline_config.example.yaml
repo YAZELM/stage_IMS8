@@ -1,0 +1,113 @@
+# Configuration exemple pour la pipeline ViViD++ -> simulateurs DVS.
+# Copier ce fichier vers config/pipeline_config.yaml puis adapter les chemins.
+
+paths:
+  vivid_output: data/outputs
+  work_dir: runs
+
+  repos:
+    v2e: external/v2e
+    vid2e: external/rpg_vid2e
+    iebcs: external/IEBCS
+    dvs_voltmeter: external/DVS-Voltmeter
+    pix2nvs: external/PIX2NVS
+
+  pythons:
+    default: python
+    v2e: python
+    vid2e: python
+    iebcs: python
+    dvs_voltmeter: python
+    pix2nvs: python
+
+general:
+  overwrite: true
+  dry_run: false
+  max_sequences:
+  sequences: []
+  video_exts: [".mp4", ".avi", ".mov", ".mkv"]
+  image_exts: [".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"]
+  preferred_image_dirs: ["frames_rgb", "frames", "images", "imgs"]
+  fps_fallback: 30.0
+  extract_fps:
+  start_s: 0.0
+  stop_s:
+  resize:
+    enabled: false
+    width: 346
+    height: 260
+
+v2e:
+  enabled: true
+  input_mode: video
+  params:
+    no_preview: true
+    skip_video_output: true
+    hdr: false
+    dvs_preset:
+    output_width: 346
+    output_height: 260
+    auto_timestamp_resolution: true
+    timestamp_resolution:
+    disable_slomo: true
+    slomo_model:
+    dvs_params:
+    pos_thres: 0.2
+    neg_thres: 0.2
+    sigma_thres: 0.03
+    cutoff_hz:
+    leak_rate_hz:
+    shot_noise_rate_hz:
+    leak_jitter_fraction:
+    noise_rate_cov_decades:
+    refractory_period:
+    dvs_emulator_seed:
+    photoreceptor_noise: false
+    dvs_exposure:
+    dvs_text:
+    dvs_h5: events.h5
+    dvs_aedat2:
+    extra_args: []
+
+vid2e:
+  enabled: true
+  params:
+    use_upsampling: true
+    contrast_threshold_negative: 0.2
+    contrast_threshold_positive: 0.2
+    refractory_period_ns: 0
+    extra_upsample_args: []
+    extra_generate_args: []
+
+iebcs:
+  enabled: true
+  params:
+    th_pos: 0.4
+    th_neg: 0.4
+    th_noise: 0.01
+    latency_us: 100
+    jitter_us: 10
+    refractory_us: 100
+    tau_us: 40
+    bgn_pos_hz: 0.1
+    bgn_neg_hz: 0.01
+    use_measured_noise: false
+    noise_pos_file: data/noise_pos_161lux.npy
+    noise_neg_file: data/noise_neg_161lux.npy
+    lux_scale: 10000.0
+
+dvs_voltmeter:
+  enabled: true
+  params:
+    camera_type: DVS346
+    model_para: [5.265, 20, 0.0001, 1e-7, 5e-9, 1e-5]
+    extra_args: []
+
+pix2nvs:
+  enabled: true
+  params:
+    reference: 3
+    adaptive: 0
+    blocksize: 4
+    maxevents:
+    extra_args: []

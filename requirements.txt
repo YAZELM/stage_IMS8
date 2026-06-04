@@ -1,0 +1,6 @@
+numpy
+matplotlib
+opencv-python
+pyyaml
+rosbags
+h5py
