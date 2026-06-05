@@ -1,4 +1,4 @@
-# Comparaison simple des simulateurs
+﻿# Comparaison simple des simulateurs
 
 ## Objectif
 
@@ -61,7 +61,7 @@ VIVID produit en moyenne `1.95e+05` events/s. `pix2nvs` reste le plus proche en 
 `v2e` et `vid2e` sont nettement plus eleves: environ `11.34`x et `14.37`x VIVID.
 Cela suggere une generation d'evenements plus dense, probablement liee aux seuils, au bruit ou a l'interpolation temporelle.
 
-![events/s](figures/01_events_per_second.png)
+![events/s](comparaison/figures/01_events_per_second.png)
 
 ## Evenements par pixel
 
@@ -70,21 +70,21 @@ Sur la moyenne globale, `pix2nvs` est le plus proche de VIVID avec un facteur `0
 `iebcs` reste interessant car il garde une couverture du capteur tres complete, mais il n'est pas le plus proche globalement sur `events/pixel`.
 `v2e` et `vid2e` restent largement au-dessus, donc l'ecart de volume ne vient pas seulement du nombre de pixels du capteur.
 
-![events/pixel](figures/02_events_per_pixel.png)
+![events/pixel](comparaison/figures/02_events_per_pixel.png)
 
 ## Ratio ON
 
 VIVID a un ratio ON plus bas que la plupart des simulateurs. Les simulateurs tendent souvent vers une polarite plus proche de 50/50.
 Cette difference peut indiquer que les modeles de seuil ON/OFF ou de contraste ne reproduisent pas exactement le desequilibre de VIVID.
 
-![ON ratio](figures/03_on_fraction.png)
+![ON ratio](comparaison/figures/03_on_fraction.png)
 
 ## Pixels utilises
 
 La plupart des methodes activent une grande partie du capteur, mais `pix2nvs`, `v2e` et `vid2e` utilisent moins de pixels dans certaines conditions, surtout dans les scenes sombres.
 Cette metrique aide a distinguer un simulateur qui produit beaucoup d'evenements partout d'un simulateur qui concentre l'activite sur moins de pixels.
 
-![pixels utilises](figures/04_active_pixel_fraction.png)
+![pixels utilises](comparaison/figures/04_active_pixel_fraction.png)
 
 ## Delai inter-event par pixel
 
@@ -92,14 +92,14 @@ Le delai inter-event complete la lecture du volume: si un simulateur produit bea
 `v2e` et `vid2e` ont effectivement des delais beaucoup plus courts que VIVID, ce qui confirme une dynamique plus dense.
 `pix2nvs` est proche de VIVID sur le delai moyen, mais la remarque sur l'ordre temporel reste importante.
 
-![delai inter-event par pixel](figures/05_delay_inter_event_per_pixel.png)
+![delai inter-event par pixel](comparaison/figures/05_delay_inter_event_per_pixel.png)
 
 ## Events/s par fenetre temporelle
 
 Cette figure montre si les pics d'activite arrivent globalement aux memes moments.
 Elle evite de conclure uniquement a partir d'une moyenne: deux simulateurs peuvent avoir un volume moyen proche mais des pics temporels mal places.
 
-![events/s par fenetre](figures/06_events_per_second_by_temporal_window.png)
+![events/s par fenetre](comparaison/figures/06_events_per_second_by_temporal_window.png)
 
 ## Analyse par condition
 

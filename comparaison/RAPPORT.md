@@ -1,259 +1,3 @@
-﻿# Comparaison DVS réel / simulateurs avec ViViD++
-
-Ce projet permet de préparer le dataset ViViD++, de lancer plusieurs simulateurs DVS, de convertir tous les événements dans un format commun, puis de comparer les événements simulés aux événements réels.
-
-Objectif :
-
-```text
-RGB ViViD++ -> simulateurs -> événements simulés
-DVS ViViD++ -> événements réels de référence
-comparaison réel vs simulé
-```
-
-## Pipeline complète
-
-La pipeline suit quatre étapes :
-
-```text
-1. extraction du dataset depuis les fichiers .bag ViViD++
-2. lancement des simulateurs vidéo -> événements
-3. conversion des sorties au format AER commun
-4. comparaison fondamentale des événements réels et simulés
-```
-
-Le format final utilisé dans le projet est :
-
-```text
-x, y, t, p
-```
-
-avec :
-
-```text
-x = coordonnée horizontale
-y = coordonnée verticale
-t = temps en secondes
-p = polarité : 0 = OFF, 1 = ON
-```
-
-## Architecture
-
-```text
-.
-├── README.md
-├── requirements.txt
-├── environment.yml
-├── run_all.sh
-├── config/
-│   └── pipeline_config.example.yaml
-├── dataset_pipeline/
-├── run_vivid_event_pipeline.py
-├── adapters/
-├── scripts/
-│   ├── 00_check_project.py
-│   ├── 02_convert_simulator_outputs_to_aer_npz.py
-│   ├── 03_prepare_vivid_real_events_to_aer_npz.py
-│   └── 04_compare_fundamental_metrics.py
-├── docs/
-│   ├── DATASET_PIPELINE.md
-│   ├── DATA_LAYOUT.md
-│   ├── INSTALL_SIMULATORS.md
-│   ├── METRICS.md
-│   └── example_comparison/
-├── data/
-├── external/
-└── runs/
-```
-
-## Installation
-
-Avec conda :
-
-```bash
-conda env create -f environment.yml
-conda activate vivid-dvs-comparison
-```
-
-Avec pip :
-
-```bash
-pip install -r requirements.txt
-```
-
-Installer également FFmpeg :
-
-```bash
-sudo apt install ffmpeg
-```
-
-## Configuration
-
-Créer la configuration locale :
-
-```bash
-cp config/pipeline_config.example.yaml config/pipeline_config.yaml
-```
-
-Modifier ensuite les chemins dans :
-
-```text
-config/pipeline_config.yaml
-```
-
-Les simulateurs doivent être installés séparément, par exemple dans :
-
-```text
-external/
-├── v2e/
-├── rpg_vid2e/
-├── IEBCS/
-├── DVS-Voltmeter/
-└── PIX2NVS/
-```
-
-## Étape 1 — Extraction du dataset ViViD++
-
-Cette étape est nécessaire lorsque les données d’origine sont des fichiers `.bag`.
-
-```bash
-python dataset_pipeline/run_pipeline.py data/raw_bags --out data/outputs
-```
-
-Sortie attendue :
-
-```text
-data/outputs/<sequence>/
-├── frames_rgb/
-├── events/
-├── timestamps/
-└── videos/
-```
-
-Pour inspecter les topics d’un bag :
-
-```bash
-python dataset_pipeline/inspect_bag.py data/raw_bags/sequence.bag
-```
-
-## Étape 2 — Préparation et simulation
-
-Préparer les séquences :
-
-```bash
-python run_vivid_event_pipeline.py --config config/pipeline_config.yaml --prepare
-```
-
-Lancer tous les simulateurs :
-
-```bash
-python run_vivid_event_pipeline.py --config config/pipeline_config.yaml --run all
-```
-
-Lancer un seul simulateur :
-
-```bash
-python run_vivid_event_pipeline.py --config config/pipeline_config.yaml --run iebcs
-```
-
-## Étape 3 — Conversion au format commun
-
-Convertir les sorties des simulateurs :
-
-```bash
-python scripts/02_convert_simulator_outputs_to_aer_npz.py --config config/pipeline_config.yaml
-```
-
-Préparer les événements réels ViViD++ :
-
-```bash
-python scripts/03_prepare_vivid_real_events_to_aer_npz.py --config config/pipeline_config.yaml
-```
-
-Structure obtenue :
-
-```text
-runs/aer_npz/
-├── vivid/
-├── v2e/
-├── vid2e/
-├── iebcs/
-├── dvs_voltmeter/
-└── pix2nvs/
-```
-
-## Étape 4 — Comparaison fondamentale
-
-Le script de comparaison utilisé est :
-
-```text
-scripts/04_compare_fundamental_metrics.py
-```
-
-Commande :
-
-```bash
-python scripts/04_compare_fundamental_metrics.py runs/aer_npz runs/comparison
-```
-
-La pipeline complète l’appelle automatiquement avec :
-
-```bash
-bash run_all.sh
-```
-
-Le script calcule quatre métriques principales :
-
-```text
-events/s
-events/pixel
-ratio ON
-pixels actifs / pixels totaux
-```
-
-Deux contrôles temporels sont ajoutés :
-
-```text
-délai inter-événement moyen par pixel
-events/s par fenêtre temporelle
-```
-
-### Formules
-
-```text
-events/s = n_events / durée
-events/pixel = n_events / (largeur * hauteur)
-ON ratio = n_ON / n_events
-pixels utilisés = pixels_actifs / pixels_totaux
-délai_pixel = (t_dernier - t_premier) / (n_events_pixel - 1)
-```
-
-Le délai inter-événement est calculé seulement pour les pixels ayant au moins deux événements.
-
-## Sorties de la comparaison
-
-Le dossier de comparaison versionne dans ce depot est `comparaison/`. Il contient le rapport, les figures et les CSV verifies.
-
-```text
-runs/comparison/
-├── RAPPORT.md
-├── README.md
-├── requirements.txt
-├── figures/
-│   ├── 01_events_per_second.png
-│   ├── 02_events_per_pixel.png
-│   ├── 03_on_fraction.png
-│   ├── 04_active_pixel_fraction.png
-│   ├── 05_delay_inter_event_per_pixel.png
-│   └── 06_events_per_second_by_temporal_window.png
-├── results/
-│   ├── metrics_by_sequence.csv
-│   ├── events_per_second_by_window.csv
-│   ├── summary.csv
-│   └── validation.csv
-└── scripts/
-    └── 04_compare_fundamental_metrics.py
-```
-
 # Comparaison simple des simulateurs
 
 ## Objectif
@@ -317,7 +61,7 @@ VIVID produit en moyenne `1.95e+05` events/s. `pix2nvs` reste le plus proche en 
 `v2e` et `vid2e` sont nettement plus eleves: environ `11.34`x et `14.37`x VIVID.
 Cela suggere une generation d'evenements plus dense, probablement liee aux seuils, au bruit ou a l'interpolation temporelle.
 
-![events/s](comparaison/figures/01_events_per_second.png)
+![events/s](figures/01_events_per_second.png)
 
 ## Evenements par pixel
 
@@ -326,21 +70,21 @@ Sur la moyenne globale, `pix2nvs` est le plus proche de VIVID avec un facteur `0
 `iebcs` reste interessant car il garde une couverture du capteur tres complete, mais il n'est pas le plus proche globalement sur `events/pixel`.
 `v2e` et `vid2e` restent largement au-dessus, donc l'ecart de volume ne vient pas seulement du nombre de pixels du capteur.
 
-![events/pixel](comparaison/figures/02_events_per_pixel.png)
+![events/pixel](figures/02_events_per_pixel.png)
 
 ## Ratio ON
 
 VIVID a un ratio ON plus bas que la plupart des simulateurs. Les simulateurs tendent souvent vers une polarite plus proche de 50/50.
 Cette difference peut indiquer que les modeles de seuil ON/OFF ou de contraste ne reproduisent pas exactement le desequilibre de VIVID.
 
-![ON ratio](comparaison/figures/03_on_fraction.png)
+![ON ratio](figures/03_on_fraction.png)
 
 ## Pixels utilises
 
 La plupart des methodes activent une grande partie du capteur, mais `pix2nvs`, `v2e` et `vid2e` utilisent moins de pixels dans certaines conditions, surtout dans les scenes sombres.
 Cette metrique aide a distinguer un simulateur qui produit beaucoup d'evenements partout d'un simulateur qui concentre l'activite sur moins de pixels.
 
-![pixels utilises](comparaison/figures/04_active_pixel_fraction.png)
+![pixels utilises](figures/04_active_pixel_fraction.png)
 
 ## Delai inter-event par pixel
 
@@ -348,14 +92,14 @@ Le delai inter-event complete la lecture du volume: si un simulateur produit bea
 `v2e` et `vid2e` ont effectivement des delais beaucoup plus courts que VIVID, ce qui confirme une dynamique plus dense.
 `pix2nvs` est proche de VIVID sur le delai moyen, mais la remarque sur l'ordre temporel reste importante.
 
-![delai inter-event par pixel](comparaison/figures/05_delay_inter_event_per_pixel.png)
+![delai inter-event par pixel](figures/05_delay_inter_event_per_pixel.png)
 
 ## Events/s par fenetre temporelle
 
 Cette figure montre si les pics d'activite arrivent globalement aux memes moments.
 Elle evite de conclure uniquement a partir d'une moyenne: deux simulateurs peuvent avoir un volume moyen proche mais des pics temporels mal places.
 
-![events/s par fenetre](comparaison/figures/06_events_per_second_by_temporal_window.png)
+![events/s par fenetre](figures/06_events_per_second_by_temporal_window.png)
 
 ## Analyse par condition
 
@@ -500,5 +244,3 @@ Globalement, le plus proche de VIVID est `pix2nvs` pour `events/s`, `pix2nvs` po
 - DVS-Voltmeter: https://www.ecva.net/papers/eccv_2022/papers_ECCV/papers/136670571.pdf
 - PIX2NVS: https://discovery.ucl.ac.uk/id/eprint/10056312/
 - Vid2E: https://openaccess.thecvf.com/content_CVPR_2020/papers/Gehrig_Video_to_Events_Recycling_Video_Datasets_for_Event_Cameras_CVPR_2020_paper.pdf
-
-
