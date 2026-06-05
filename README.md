@@ -252,63 +252,39 @@ runs/comparison/
     └── 04_compare_fundamental_metrics.py
 ```
 
-## Analyse complète de l’exemple de comparaison
+# Comparaison simple des simulateurs
 
-Cette section reprend l’analyse complète produite par le script de comparaison fondamentale. Elle est intégrée au README principal afin que la méthode, les résultats et l’interprétation soient visibles directement depuis la page GitHub du projet.
+## Objectif
 
-### Ce qui est comparé
+Le but est de comparer VIVID aux simulateurs avec peu de metriques, mais de les lire correctement selon les conditions de scene.
+VIVID est utilise comme reference et reste visible dans chaque figure.
 
-La comparaison garde quatre métriques principales :
+Les metriques principales sont `events/s`, `events/pixel`, `ON ratio` et `pixels utilises`.
+Deux controles temporels completent la lecture: le delai inter-event par pixel et les `events/s` par fenetre temporelle.
 
-- `events/s` : nombre d’événements par seconde.
-- `events/pixel` : nombre total d’événements divisé par le nombre total de pixels du capteur.
-- `ON ratio` : proportion d’événements ON, calculée par `n_ON / n_events`.
-- `pixels utilisés` : proportion de pixels qui ont produit au moins un événement.
+## Methode courte
 
-Deux contrôles temporels sont ajoutés :
+- `events/s = n_events / duree`.
+- `events/pixel = n_events / (largeur * hauteur)`.
+- `ON ratio = n_ON / n_events`.
+- `pixels utilises = pixels_actifs / pixels_totaux`.
+- `delai_pixel = (t_dernier - t_premier) / (n_events_pixel - 1)` pour chaque pixel avec au moins deux evenements.
 
-- `délai inter-événement par pixel` : calculé en parcourant les pixels du capteur.
-- `events/s par fenêtre` : calculé avec des fenêtres temporelles régulières.
+Le calcul du delai considere bien tous les pixels du capteur. Les pixels avec moins de deux evenements sont comptes, mais ils n'ont pas de delai inter-event defini.
+Les resolutions utilisees sont `240x180` pour VIVID et `346x260` pour les simulateurs.
 
-ViViD++ est la référence de comparaison. Il apparaît aussi dans les figures comme une source à part entière.
+## Verification rapide
 
-### Formules utilisées
+- Fichiers analyses: 60.
+- Fichiers invalides: 0.
+- Fichiers avec timestamps non ordonnes sur echantillon: 10.
 
-```text
-events/s = n_events / durée
-events/pixel = n_events / (largeur * hauteur)
-ON ratio = n_ON / n_events
-pixels utilisés = pixels_actifs / pixels_totaux
-délai_pixel = (t_dernier - t_premier) / (n_events_pixel - 1)
-```
+Les timestamps non ordonnes concernent `pix2nvs`. Les metriques de comptage restent exploitables, mais toute analyse temporelle fine de `pix2nvs` doit rester prudente.
 
-Le délai inter-événement par pixel est calculé uniquement pour les pixels ayant au moins deux événements.
+## Vue globale des resultats
 
-Dans l’exemple fourni, la résolution utilisée est :
-
-```text
-ViViD++ : 240 × 180
-simulateurs : 346 × 260
-```
-
-Pour le délai, le script crée une case pour chaque pixel du capteur. Les pixels avec moins de deux événements sont comptés dans le nombre de pixels actifs, mais ils n’ont pas de délai inter-événement défini.
-
-### Vérification rapide
-
-Dans l’exemple fourni :
-
-```text
-Fichiers analysés : 60
-Fichiers invalides : 0
-Fichiers avec timestamps non ordonnés sur échantillon : 10
-```
-
-Les timestamps non ordonnés concernent `pix2nvs`. Les quatre métriques principales restent utilisables, car elles ne dépendent pas de l’ordre des lignes. En revanche, une analyse temporelle fine nécessite de contrôler ou trier les timestamps.
-
-### Résultats moyens
-
-| Source | events/s | events/pixel | ON ratio | pixels utilisés | délai/pixel | pixels avec délai | events/s vs VIVID | events/pixel vs VIVID | délai vs VIVID | RMSE fenêtres |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Source | events/s | events/pixel | ON ratio | pixels utilises | delai/pixel | pixels avec delai | events/s vs VIVID | events/pixel vs VIVID | delai vs VIVID | RMSE fenetres |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | vivid | 1.95e+05 | 109.7 | 42.4% | 99.9% | 6.47e+05 | 99.6% | 1.000 | 1.000 | 1.000 | 0.000 |
 | dvs_voltmeter | 9.99e+05 | 262.5 | 53.7% | 100.0% | 9.55e+05 | 98.2% | 5.112 | 2.393 | 1.476 | 8.82e+05 |
 | iebcs | 5.74e+05 | 159.5 | 49.5% | 100.0% | 8.33e+05 | 99.7% | 2.938 | 1.454 | 1.289 | 4.38e+05 |
@@ -316,58 +292,204 @@ Les timestamps non ordonnés concernent `pix2nvs`. Les quatre métriques princip
 | v2e | 2.22e+06 | 580.8 | 50.2% | 95.7% | 8.29e+04 | 95.0% | 11.34 | 5.294 | 0.128 | 2.22e+06 |
 | vid2e | 2.81e+06 | 731.2 | 50.1% | 96.0% | 5.18e+04 | 96.0% | 14.37 | 6.665 | 0.080 | 2.79e+06 |
 
-### Interprétation
+## Critere de proximite
 
-- ViViD++ produit en moyenne environ `1.95e5 events/s` et `109.7 events/pixel`.
-- `pix2nvs` est le plus proche de ViViD++ en nombre moyen d’événements par seconde.
-- `pix2nvs` utilise cependant moins de pixels que ViViD++ et ses timestamps doivent être contrôlés avant une analyse temporelle fine.
-- `iebcs` présente le comportement global le plus équilibré sur les métriques simples : volume modéré, ratio ON proche, et presque tous les pixels sont utilisés.
-- `dvs_voltmeter` active presque tout le capteur, mais produit environ cinq fois plus d’événements par seconde que ViViD++ et présente un ratio ON plus élevé.
-- `v2e` et `vid2e` produisent beaucoup plus d’événements que ViViD++ dans ces conditions.
-- Le délai inter-événement par pixel permet de vérifier si une surproduction correspond aussi à des événements beaucoup plus rapprochés dans le temps.
-- La figure `events/s par fenêtre` permet de voir si les pics temporels suivent la même forme que ViViD++ ou seulement un volume moyen proche.
+Pour eviter toute ambiguite, le meme critere est applique partout dans le rapport:
 
-Conclusion de l’exemple :
+- pour un ratio, le plus proche de VIVID minimise `abs(ratio - 1)`;
+- pour une difference en points de pourcentage, le plus proche minimise `abs(diff_pp)`.
 
-```text
-Si le critère principal est le volume d’événements, pix2nvs est le plus proche.
-Si le critère principal est un comportement global stable sur les métriques simples, iebcs est le candidat le plus cohérent.
-```
+Application globale du critere:
 
-Cette conclusion dépend des paramètres utilisés et doit être réévaluée pour chaque nouvelle configuration.
+| Metrique | Plus proche | Valeur | Distance | Critere |
+| --- | --- | --- | --- | --- |
+| events/s | pix2nvs | 1.632 | 0.632 | abs(ratio - 1) |
+| events/pixel | pix2nvs | 0.779 | 0.221 | abs(ratio - 1) |
+| delai | pix2nvs | 0.982 | 0.018 | abs(ratio - 1) |
+| ON ratio | iebcs | 7.151 | 7.151 | abs(diff_pp) |
+| pixels utilises | dvs_voltmeter | 0.126 | 0.126 | abs(diff_pp) |
 
-### Hypothèses d’explication
+## Volume d'evenements
 
-- `v2e` et `vid2e` peuvent surproduire parce qu’ils utilisent des modèles ou interpolations qui rendent les variations temporelles plus denses.
-- `dvs_voltmeter` ajoute une modélisation stochastique du capteur, ce qui peut augmenter l’activité et la couverture spatiale.
-- `iebcs` semble plus contraint par ses paramètres de capteur : seuils, latence, jitter et période réfractaire.
-- `pix2nvs` est proche en volume, mais son ordre temporel doit être vérifié plus soigneusement.
+VIVID produit en moyenne `1.95e+05` events/s. `pix2nvs` reste le plus proche en volume moyen, meme s'il reste au-dessus de VIVID avec un facteur `1.632`.
+`v2e` et `vid2e` sont nettement plus eleves: environ `11.34`x et `14.37`x VIVID.
+Cela suggere une generation d'evenements plus dense, probablement liee aux seuils, au bruit ou a l'interpolation temporelle.
 
-### Figures de l’exemple
+![events/s](figures/01_events_per_second.png)
 
-#### Nombre d’événements par seconde
+## Evenements par pixel
 
-![Nombre d'événements par seconde](docs/example_comparison/figures/01_events_per_second.png)
+Cette metrique corrige la difference de resolution entre VIVID et les simulateurs.
+Sur la moyenne globale, `pix2nvs` est le plus proche de VIVID avec un facteur `0.779`: il est legerement en dessous de VIVID, alors que `iebcs` est au-dessus avec un facteur `1.454`.
+`iebcs` reste interessant car il garde une couverture du capteur tres complete, mais il n'est pas le plus proche globalement sur `events/pixel`.
+`v2e` et `vid2e` restent largement au-dessus, donc l'ecart de volume ne vient pas seulement du nombre de pixels du capteur.
 
-#### Nombre d’événements par pixel
+![events/pixel](figures/02_events_per_pixel.png)
 
-![Nombre d'événements par pixel](docs/example_comparison/figures/02_events_per_pixel.png)
+## Ratio ON
 
-#### Ratio d’événements ON
+VIVID a un ratio ON plus bas que la plupart des simulateurs. Les simulateurs tendent souvent vers une polarite plus proche de 50/50.
+Cette difference peut indiquer que les modeles de seuil ON/OFF ou de contraste ne reproduisent pas exactement le desequilibre de VIVID.
 
-![Ratio ON](docs/example_comparison/figures/03_on_fraction.png)
+![ON ratio](figures/03_on_fraction.png)
 
-#### Pixels actifs sur pixels totaux
+## Pixels utilises
 
-![Pixels actifs](docs/example_comparison/figures/04_active_pixel_fraction.png)
+La plupart des methodes activent une grande partie du capteur, mais `pix2nvs`, `v2e` et `vid2e` utilisent moins de pixels dans certaines conditions, surtout dans les scenes sombres.
+Cette metrique aide a distinguer un simulateur qui produit beaucoup d'evenements partout d'un simulateur qui concentre l'activite sur moins de pixels.
 
-#### Délai inter-événement moyen par pixel
+![pixels utilises](figures/04_active_pixel_fraction.png)
 
-![Délai inter-événement](docs/example_comparison/figures/05_delay_inter_event_per_pixel.png)
+## Delai inter-event par pixel
 
-#### Events/s par fenêtre temporelle
+Le delai inter-event complete la lecture du volume: si un simulateur produit beaucoup plus d'evenements, on s'attend souvent a des delais plus courts.
+`v2e` et `vid2e` ont effectivement des delais beaucoup plus courts que VIVID, ce qui confirme une dynamique plus dense.
+`pix2nvs` est proche de VIVID sur le delai moyen, mais la remarque sur l'ordre temporel reste importante.
 
-![Events/s par fenêtre temporelle](docs/example_comparison/figures/06_events_per_second_by_temporal_window.png)
+![delai inter-event par pixel](figures/05_delay_inter_event_per_pixel.png)
+
+## Events/s par fenetre temporelle
+
+Cette figure montre si les pics d'activite arrivent globalement aux memes moments.
+Elle evite de conclure uniquement a partir d'une moyenne: deux simulateurs peuvent avoir un volume moyen proche mais des pics temporels mal places.
+
+![events/s par fenetre](figures/06_events_per_second_by_temporal_window.png)
+
+## Analyse par condition
+
+Les moyennes globales cachent une partie du comportement. Ici, chaque condition est comparee a VIVID dans la meme condition.
+
+| Condition | Source | events/s vs VIVID | events/pixel vs VIVID | ON diff pp | pixels diff pp | delai vs VIVID |
+| --- | --- | --- | --- | --- | --- | --- |
+| dark | vivid | 1.000 | 1.000 | 0.000 | 0.000 | 1.000 |
+| dark | dvs_voltmeter | 1.024 | 0.505 | 15.79 | -0.002 | 2.815 |
+| dark | iebcs | 0.981 | 0.505 | 12.99 | 0.002 | 2.237 |
+| dark | pix2nvs | 0.283 | 0.154 | 8.145 | -14.41 | 1.450 |
+| dark | v2e | 3.215 | 1.551 | 9.097 | -14.20 | 0.169 |
+| dark | vid2e | 5.978 | 2.806 | 8.667 | -13.48 | 0.081 |
+| global | vivid | 1.000 | 1.000 | 0.000 | 0.000 | 1.000 |
+| global | dvs_voltmeter | 2.902 | 1.504 | 11.31 | 0.000 | 0.591 |
+| global | iebcs | 1.210 | 0.663 | 6.167 | 0.000 | 1.687 |
+| global | pix2nvs | 0.829 | 0.434 | 8.093 | 0.000 | 2.194 |
+| global | v2e | 5.554 | 2.865 | 8.300 | 0.000 | 0.382 |
+| global | vid2e | 6.550 | 3.281 | 8.277 | 0.000 | 0.361 |
+| local | vivid | 1.000 | 1.000 | 0.000 | 0.000 | 1.000 |
+| local | dvs_voltmeter | 25.38 | 12.64 | 5.164 | 0.422 | 0.075 |
+| local | iebcs | 15.64 | 8.279 | 0.690 | 0.422 | 0.128 |
+| local | pix2nvs | 8.481 | 4.334 | 3.673 | 0.422 | 0.205 |
+| local | v2e | 59.24 | 29.48 | 3.515 | 0.422 | 0.034 |
+| local | vid2e | 72.70 | 36.06 | 3.543 | 0.422 | 0.030 |
+| varying | vivid | 1.000 | 1.000 | 0.000 | 0.000 | 1.000 |
+| varying | dvs_voltmeter | 5.901 | 2.829 | 16.56 | 0.000 | 0.303 |
+| varying | iebcs | 5.297 | 2.540 | 11.97 | 0.000 | 0.346 |
+| varying | pix2nvs | 2.286 | 1.098 | 13.87 | 0.000 | 0.786 |
+| varying | v2e | 15.66 | 7.522 | 15.40 | 0.000 | 0.114 |
+| varying | vid2e | 23.61 | 11.08 | 15.39 | 0.000 | 0.079 |
+
+Meilleurs simulateurs par condition avec le critere uniforme:
+
+| Condition | Metrique | Plus proche | Valeur | Distance | Critere |
+| --- | --- | --- | --- | --- | --- |
+| dark | events/s | iebcs | 0.981 | 0.019 | abs(ratio - 1) |
+| dark | events/pixel | dvs_voltmeter | 0.505 | 0.495 | abs(ratio - 1) |
+| dark | delai | pix2nvs | 1.450 | 0.450 | abs(ratio - 1) |
+| dark | ON ratio | pix2nvs | 8.145 | 8.145 | abs(diff_pp) |
+| dark | pixels utilises | dvs_voltmeter | -0.002 | 0.002 | abs(diff_pp) |
+| global | events/s | pix2nvs | 0.829 | 0.171 | abs(ratio - 1) |
+| global | events/pixel | iebcs | 0.663 | 0.337 | abs(ratio - 1) |
+| global | delai | dvs_voltmeter | 0.591 | 0.409 | abs(ratio - 1) |
+| global | ON ratio | iebcs | 6.167 | 6.167 | abs(diff_pp) |
+| global | pixels utilises | dvs_voltmeter | 0.000 | 0.000 | abs(diff_pp) |
+| local | events/s | pix2nvs | 8.481 | 7.481 | abs(ratio - 1) |
+| local | events/pixel | pix2nvs | 4.334 | 3.334 | abs(ratio - 1) |
+| local | delai | pix2nvs | 0.205 | 0.795 | abs(ratio - 1) |
+| local | ON ratio | iebcs | 0.690 | 0.690 | abs(diff_pp) |
+| local | pixels utilises | dvs_voltmeter | 0.422 | 0.422 | abs(diff_pp) |
+| varying | events/s | pix2nvs | 2.286 | 1.286 | abs(ratio - 1) |
+| varying | events/pixel | pix2nvs | 1.098 | 0.098 | abs(ratio - 1) |
+| varying | delai | pix2nvs | 0.786 | 0.214 | abs(ratio - 1) |
+| varying | ON ratio | iebcs | 11.97 | 11.97 | abs(diff_pp) |
+| varying | pixels utilises | dvs_voltmeter | 0.000 | 0.000 | abs(diff_pp) |
+
+Lecture synthetique:
+
+Ici, `plus proche` signifie: ratio le plus proche de `1` pour `events/s`, `events/pixel` et le delai; ecart le plus proche de `0` pour le ratio ON.
+
+- `dark`: plus proche en `events/s`: `iebcs`; plus proche en `events/pixel`: `dvs_voltmeter`; plus proche en ratio ON: `pix2nvs`.
+- `global`: plus proche en `events/s`: `pix2nvs`; plus proche en `events/pixel`: `iebcs`; plus proche en ratio ON: `iebcs`.
+- `local`: plus proche en `events/s`: `pix2nvs`; plus proche en `events/pixel`: `pix2nvs`; plus proche en ratio ON: `iebcs`.
+- `varying`: plus proche en `events/s`: `pix2nvs`; plus proche en `events/pixel`: `pix2nvs`; plus proche en ratio ON: `iebcs`.
+
+`dark` met davantage en evidence le bruit et les seuils de declenchement. `global` et `local` revelent surtout les ecarts de volume. `varying` teste la robustesse quand l'intensite change au cours du temps.
+
+## Analyse par regime
+
+Les regimes `aggressive`, `robust` et `unstable` donnent une deuxieme lecture des memes donnees.
+
+| Regime | Source | events/s vs VIVID | events/pixel vs VIVID | ON diff pp | pixels diff pp | delai vs VIVID |
+| --- | --- | --- | --- | --- | --- | --- |
+| aggressive | vivid | 1.000 | 1.000 | 0.000 | 0.000 | 1.000 |
+| aggressive | dvs_voltmeter | 4.548 | 1.986 | 9.872 | 0.028 | 0.723 |
+| aggressive | iebcs | 2.192 | 0.940 | 6.306 | 0.032 | 2.362 |
+| aggressive | pix2nvs | 1.356 | 0.590 | 7.607 | -4.329 | 2.689 |
+| aggressive | v2e | 10.06 | 4.375 | 7.936 | -2.793 | 0.241 |
+| aggressive | vid2e | 12.12 | 5.050 | 7.835 | -2.844 | 0.149 |
+| robust | vivid | 1.000 | 1.000 | 0.000 | 0.000 | 1.000 |
+| robust | dvs_voltmeter | 6.712 | 3.000 | 12.92 | 0.263 | 1.122 |
+| robust | iebcs | 5.111 | 2.202 | 7.999 | 0.263 | 0.868 |
+| robust | pix2nvs | 2.386 | 1.048 | 7.415 | -2.935 | 0.593 |
+| robust | v2e | 15.57 | 6.821 | 8.149 | -4.221 | 0.097 |
+| robust | vid2e | 21.77 | 9.205 | 8.000 | -3.837 | 0.063 |
+| unstable | vivid | 1.000 | 1.000 | 0.000 | 0.000 | 1.000 |
+| unstable | dvs_voltmeter | 4.848 | 2.056 | 10.69 | 0.042 | 2.980 |
+| unstable | iebcs | 2.555 | 1.052 | 6.865 | 0.042 | 2.092 |
+| unstable | pix2nvs | 1.522 | 0.640 | 7.041 | -5.751 | 1.368 |
+| unstable | v2e | 10.35 | 4.340 | 7.245 | -5.362 | 0.170 |
+| unstable | vid2e | 12.64 | 5.165 | 7.113 | -5.102 | 0.101 |
+
+Meilleurs simulateurs par regime avec le critere uniforme:
+
+| Regime | Metrique | Plus proche | Valeur | Distance | Critere |
+| --- | --- | --- | --- | --- | --- |
+| aggressive | events/s | pix2nvs | 1.356 | 0.356 | abs(ratio - 1) |
+| aggressive | events/pixel | iebcs | 0.940 | 0.060 | abs(ratio - 1) |
+| aggressive | delai | dvs_voltmeter | 0.723 | 0.277 | abs(ratio - 1) |
+| aggressive | ON ratio | iebcs | 6.306 | 6.306 | abs(diff_pp) |
+| aggressive | pixels utilises | dvs_voltmeter | 0.028 | 0.028 | abs(diff_pp) |
+| robust | events/s | pix2nvs | 2.386 | 1.386 | abs(ratio - 1) |
+| robust | events/pixel | pix2nvs | 1.048 | 0.048 | abs(ratio - 1) |
+| robust | delai | dvs_voltmeter | 1.122 | 0.122 | abs(ratio - 1) |
+| robust | ON ratio | pix2nvs | 7.415 | 7.415 | abs(diff_pp) |
+| robust | pixels utilises | dvs_voltmeter | 0.263 | 0.263 | abs(diff_pp) |
+| unstable | events/s | pix2nvs | 1.522 | 0.522 | abs(ratio - 1) |
+| unstable | events/pixel | iebcs | 1.052 | 0.052 | abs(ratio - 1) |
+| unstable | delai | pix2nvs | 1.368 | 0.368 | abs(ratio - 1) |
+| unstable | ON ratio | iebcs | 6.865 | 6.865 | abs(diff_pp) |
+| unstable | pixels utilises | dvs_voltmeter | 0.042 | 0.042 | abs(diff_pp) |
+
+Lecture synthetique:
+
+Le meme critere est utilise: ratio le plus proche de `1`, ou ecart ON le plus proche de `0`.
+
+- `aggressive`: plus proche en `events/s`: `pix2nvs`; plus proche en `events/pixel`: `iebcs`; plus proche en ratio ON: `iebcs`.
+- `robust`: plus proche en `events/s`: `pix2nvs`; plus proche en `events/pixel`: `pix2nvs`; plus proche en ratio ON: `pix2nvs`.
+- `unstable`: plus proche en `events/s`: `pix2nvs`; plus proche en `events/pixel`: `iebcs`; plus proche en ratio ON: `iebcs`.
+
+## Conclusion
+
+Globalement, le plus proche de VIVID est `pix2nvs` pour `events/s`, `pix2nvs` pour `events/pixel`, `pix2nvs` pour le delai, `iebcs` pour le ratio ON, et `dvs_voltmeter` pour la couverture de pixels.
+`pix2nvs` ressort donc tres proche sur plusieurs mesures globales. Cette proximite doit toutefois etre lue avec prudence, car ses timestamps ne sont pas toujours ordonnes et sa couverture de pixels est plus faible.
+`iebcs` n'est pas le meilleur sur le volume global, mais il apparait comme un compromis propre: volume modere, ratio ON relativement proche, et couverture quasi complete du capteur.
+`dvs_voltmeter` couvre tres bien le capteur, mais son volume et son ratio ON sont plus eloignes de VIVID.
+`v2e` et `vid2e` produisent beaucoup plus d'evenements que VIVID et des delais inter-event plus courts, ce qui indique une dynamique plus dense.
+
+## Limites possibles
+
+- VIVID est traite comme reference, mais cela ne prouve pas qu'il soit une verite absolue pour toutes les scenes.
+- Les simulateurs n'ont pas forcement ete calibres avec les memes seuils, bruit, latence ou modele de capteur.
+- `events/pixel` corrige la resolution, mais ne corrige pas tous les effets lies a la geometrie ou au champ de vue.
+- Les timestamps non ordonnes de `pix2nvs` limitent les conclusions temporelles fines.
+- Les figures temporelles sont moyennees sur les sequences; une analyse plus poussee pourrait regarder chaque sequence separement.
 
 
 
