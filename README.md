@@ -369,20 +369,15 @@ Cette conclusion dépend des paramètres utilisés et doit être réévaluée po
 
 ![Events/s par fenêtre temporelle](docs/example_comparison/figures/06_events_per_second_by_temporal_window.png)
 
-### Métriques utiles à ajouter ensuite
 
-- `Hot pixels` : utile pour séparer le bruit de capteur de l’activité utile.
-- Sensibilité aux seuils ON/OFF : utile car plusieurs simulateurs dépendent fortement du seuil de contraste.
-- Comparaison spatiale par carte d’activité : utile pour vérifier si les événements apparaissent aux mêmes endroits.
-- Analyse par scène : utile pour savoir si un simulateur est meilleur dans les scènes sombres, locales, globales ou rapides.
 
-### Sources utilisées pour interpréter les simulateurs
+### Sources utilisées pour les simulateurs
 
 - v2e : https://github.com/SensorsINI/v2e
 - IEBCS : https://github.com/neuromorphicsystems/IEBCS
-- DVS-Voltmeter : https://www.ecva.net/papers/eccv_2022/papers_ECCV/papers/136670571.pdf
-- PIX2NVS : https://discovery.ucl.ac.uk/id/eprint/10056312/
-- Vid2E : https://openaccess.thecvf.com/content_CVPR_2020/papers/Gehrig_Video_to_Events_Recycling_Video_Datasets_for_Event_Cameras_CVPR_2020_paper.pdf
+- DVS-Voltmeter :https://github.com/Lynn0306/DVS-Voltmeter
+- PIX2NVS : https://github.com/PIX2NVS/PIX2NVS
+- Vid2E :https://github.com/uzh-rpg/rpg_vid2e
 
 ## Exécution complète
 
@@ -404,10 +399,3 @@ Limiter la simulation à certains simulateurs :
 SIMS="v2e iebcs" bash run_all.sh
 ```
 
-## Notes
-
-- Les fichiers `.bag` ne doivent pas être versionnés.
-- Les sorties dans `runs/` ne doivent pas être versionnées.
-- Les simulateurs ne sont pas inclus dans ce dépôt.
-- Le format final attendu est `x, y, t, p`.
-- La polarité finale attendue est `0 = OFF`, `1 = ON`.

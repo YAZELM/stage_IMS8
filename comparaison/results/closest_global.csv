@@ -1,0 +1,6 @@
+scope,group,metric,simulator,value,distance_to_vivid,criterion
+global,global,events/s,pix2nvs,1.63201320736988,0.6320132073698801,abs(ratio - 1)
+global,global,events/pixel,pix2nvs,0.7791696160755267,0.2208303839244733,abs(ratio - 1)
+global,global,delai,pix2nvs,0.9818128522136755,0.018187147786324465,abs(ratio - 1)
+global,global,ON ratio,iebcs,7.150874657988082,7.150874657988082,abs(diff_pp)
+global,global,pixels utilises,dvs_voltmeter,0.126092049141191,0.126092049141191,abs(diff_pp)
