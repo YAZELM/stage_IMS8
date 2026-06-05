@@ -2,7 +2,7 @@
 
 Ce projet prépare des séquences ViViD++, lance plusieurs simulateurs video-to-event, convertit les sorties dans un format AER commun, puis compare les événements simulés aux événements réels ViViD++.
 
-Objectif général:
+Objectif général :
 
 ```text
 RGB ViViD++ -> simulateurs -> événements simulés
@@ -18,7 +18,7 @@ Le format final utilisé dans le projet est un fichier `.npz` contenant quatre t
 x, y, t, p
 ```
 
-avec:
+avec :
 
 ```text
 x = coordonnée horizontale
@@ -57,20 +57,20 @@ Le script de comparaison attend ce format AER strict. Les conversions doivent do
 
 ## Installation Linux
 
-Avec conda:
+Avec conda :
 
 ```bash
 conda env create -f environment.yml
 conda activate vivid-dvs-comparison
 ```
 
-Avec pip:
+Avec pip :
 
 ```bash
 python -m pip install -r requirements.txt
 ```
 
-Installer aussi FFmpeg:
+Installer aussi FFmpeg :
 
 ```bash
 sudo apt install ffmpeg
@@ -87,7 +87,7 @@ external/
 `-- PIX2NVS/
 ```
 
-Les chemins des simulateurs sont ensuite à renseigner dans:
+Les chemins des simulateurs sont ensuite à renseigner dans :
 
 ```text
 config/pipeline_config.yaml
@@ -95,13 +95,13 @@ config/pipeline_config.yaml
 
 ## Configuration
 
-Créer la configuration locale:
+Créer la configuration locale :
 
 ```bash
 cp config/pipeline_config.example.yaml config/pipeline_config.yaml
 ```
 
-Puis adapter les chemins, les interpréteurs Python et les paramètres de chaque simulateur dans:
+Puis adapter les chemins, les interpréteurs Python et les paramètres de chaque simulateur dans :
 
 ```text
 config/pipeline_config.yaml
@@ -109,18 +109,18 @@ config/pipeline_config.yaml
 
 Dans `general.timestamp_unit`, indiquer l'unité des timestamps RGB lus pendant la préparation des séquences. Pour les sorties de `dataset_pipeline`, l'unité attendue est `s`.
 
-Quand c'est possible, il est préférable de régler la résolution directement dans les simulateurs pour travailler avec un capteur comparable. Dans l'analyse actuelle, VIVID est lu en `240x180` et les simulateurs en `346x260`; `events/pixel` corrige une partie de cet écart, mais pas tous les effets de géométrie ou de champ de vue.
+Quand c'est possible, il est préférable de régler la résolution directement dans les simulateurs pour travailler avec un capteur comparable. Dans l'analyse actuelle, VIVID est lu en `240x180` et les simulateurs en `346x260` ; `events/pixel` corrige une partie de cet écart, mais pas tous les effets de géométrie ou de champ de vue.
 
 ## Données et dossiers
 
-Données brutes:
+Données brutes :
 
 ```text
 data/raw_bags/
 `-- sequence.bag
 ```
 
-Dataset extrait:
+Dataset extrait :
 
 ```text
 data/outputs/<sequence>/
@@ -130,7 +130,7 @@ data/outputs/<sequence>/
 `-- videos/
 ```
 
-Sorties brutes des simulateurs:
+Sorties brutes des simulateurs :
 
 ```text
 runs/simulated_events/
@@ -141,7 +141,7 @@ runs/simulated_events/
 `-- pix2nvs/
 ```
 
-Format AER unifie:
+Format AER unifié :
 
 ```text
 runs/aer_npz/
@@ -153,7 +153,7 @@ runs/aer_npz/
 `-- pix2nvs/
 ```
 
-Comparaison versionnee dans ce dépôt:
+Comparaison versionnée dans ce dépôt :
 
 ```text
 comparaison/
@@ -179,13 +179,13 @@ comparaison/
 
 ## Pipeline dataset ViViD++
 
-Cette etape transforme les fichiers `.bag` ViViD++ en une structure simple utilisable par les simulateurs.
+Cette étape transforme les fichiers `.bag` ViViD++ en une structure simple utilisable par les simulateurs.
 
 ```bash
 python dataset_pipeline/run_pipeline.py data/raw_bags --out data/outputs
 ```
 
-Le script principal lance successivement:
+Le script principal lance successivement :
 
 ```text
 extract_rgb.py
@@ -193,7 +193,7 @@ extract_events.py
 frames_to_video.py
 ```
 
-Sorties importantes:
+Sorties importantes :
 
 ```text
 frames_rgb/
@@ -202,13 +202,13 @@ events/events_xytp_000000.npz
 videos/rgb.mp4
 ```
 
-Pour inspecter les topics d'un bag:
+Pour inspecter les topics d'un bag :
 
 ```bash
 python dataset_pipeline/inspect_bag.py data/raw_bags/sequence.bag
 ```
 
-Les topics peuvent aussi être fixes manuellement:
+Les topics peuvent aussi être fixés manuellement :
 
 ```bash
 python dataset_pipeline/run_pipeline.py data/raw_bags/sequence.bag \
@@ -219,27 +219,27 @@ python dataset_pipeline/run_pipeline.py data/raw_bags/sequence.bag \
 
 ## Simulation
 
-Préparer les séquences:
+Préparer les séquences :
 
 ```bash
 python run_vivid_event_pipeline.py --config config/pipeline_config.yaml --prepare
 ```
 
-Lancer tous les simulateurs activés dans la configuration:
+Lancer tous les simulateurs activés dans la configuration :
 
 ```bash
 python run_vivid_event_pipeline.py --config config/pipeline_config.yaml --run all
 ```
 
-Dans la configuration exemple, Vid2E est désactivé par defaut car il dépend de `esim_py` dans l'environnement Python associé a `rpg_vid2e`. Le wrapper local est fourni dans `adapters/run_vid2e_esim_py_séquence.py`.
+Dans la configuration exemple, Vid2E est désactivé par défaut car il dépend de `esim_py` dans l'environnement Python associé à `rpg_vid2e`. Le wrapper local est fourni dans `adapters/run_vid2e_esim_py_séquence.py`.
 
-Lancer un seul simulateur:
+Lancer un seul simulateur :
 
 ```bash
 python run_vivid_event_pipeline.py --config config/pipeline_config.yaml --run iebcs
 ```
 
-Entrees utilisées par simulateur:
+Entrées utilisées par simulateur :
 
 ```text
 v2e           : video.mp4
@@ -249,9 +249,9 @@ DVS-Voltmeter : frames RGB + info.txt
 PIX2NVS       : video.mp4, avec compilation C++ possible selon l'installation
 ```
 
-## Conversion'au format commun
+## Conversion au format commun
 
-Convertir les sorties des simulateurs:
+Convertir les sorties des simulateurs :
 
 ```bash
 python scripts/02_convert_simulator_outputs_to_aer_npz.py \
@@ -260,7 +260,7 @@ python scripts/02_convert_simulator_outputs_to_aer_npz.py \
   --overwrite
 ```
 
-La conversion n'utilise pas de détection automatique d'unité temporelle. Les unités sont fixees par simulateur, selon les formats utilisés dans la pipeline:
+La conversion n'utilise pas de détection automatique d'unité temporelle. Les unités sont fixées par simulateur, selon les formats utilisés dans la pipeline :
 
 ```text
 v2e           : secondes
@@ -270,7 +270,7 @@ DVS-Voltmeter : microsecondes
 PIX2NVS       : microsecondes
 ```
 
-Si une installation particulière documente une autre unité, elle doit être indiquée explicitement, par exemple:
+Si une installation particulière documente une autre unité, elle doit être indiquée explicitement, par exemple :
 
 ```bash
 python scripts/02_convert_simulator_outputs_to_aer_npz.py \
@@ -281,7 +281,7 @@ python scripts/02_convert_simulator_outputs_to_aer_npz.py \
   --overwrite
 ```
 
-Préparer les événements réels ViViD++:
+Préparer les événements réels ViViD++ :
 
 ```bash
 python scripts/03_prepare_vivid_real_events_to_aer_npz.py \
@@ -292,17 +292,17 @@ python scripts/03_prepare_vivid_real_events_to_aer_npz.py \
   --sort-final
 ```
 
-Les événements VIVID issus de `dataset_pipeline` sont deja en secondes. Si une autre source VIVID est utilisée, l'unité doit être indiquée explicitement avec `--time-unit`.
+Les événements VIVID issus de `dataset_pipeline` sont déjà en secondes. Si une autre source VIVID est utilisée, l'unité doit être indiquée explicitement avec `--time-unit`.
 
 ## Comparaison fondamentale
 
-Le script officiel de comparaison'est:
+Le script officiel de comparaison est :
 
 ```text
 scripts/run_clear_fundamental_comparison.py
 ```
 
-Commande:
+Commande :
 
 ```bash
 python scripts/run_clear_fundamental_comparison.py runs/aer_npz runs/comparison
@@ -310,7 +310,7 @@ python scripts/run_clear_fundamental_comparison.py runs/aer_npz runs/comparison
 
 Ce script régénère uniquement les CSV et les figures. Il ne régénère pas le rapport Markdown.
 
-Métriques principales:
+Métriques principales :
 
 ```text
 events/s = n_events / durée
@@ -319,27 +319,27 @@ ON ratio = n_ON / n_events
 pixels utilisés = pixels_actifs / pixels_totaux
 ```
 
-Controles temporels:
+Contrôles temporels :
 
 ```text
 délai_pixel = (t_dernier - t_premier) / (n_events_pixel - 1)
 events/s par fenêtre temporelle
 ```
 
-Le délai inter-événement est calcule pixel par pixel, uniquement pour les pixels ayant au moins deux événements.
+Le délai inter-événement est calculé pixel par pixel, uniquement pour les pixels ayant au moins deux événements.
 
 
 ## Rapport de comparaison final
 
 ### Objectif
 
-Le but est de comparer VIVID aux simulateurs avec peu de métriques, mais de les lire correctement selon les conditions de scene.
+Le but est de comparer VIVID aux simulateurs avec peu de métriques, mais de les lire correctement selon les conditions de scène.
 VIVID est utilisé comme référence et reste visible dans chaque figure.
 
 Les métriques principales sont `events/s`, `events/pixel`, `ON ratio` et `pixels utilisés`.
 Deux controles temporels complètent la lecture: le délai inter-event par pixel et les `events/s` par fenêtre temporelle.
 
-### Methode courte
+### Méthode courte
 
 - `events/s = n_events / durée`.
 - `events/pixel = n_events / (largeur * hauteur)`.
@@ -347,25 +347,25 @@ Deux controles temporels complètent la lecture: le délai inter-event par pixel
 - `pixels utilisés = pixels_actifs / pixels_totaux`.
 - `délai_pixel = (t_dernier - t_premier) / (n_events_pixel - 1)` pour chaque pixel avec au moins deux événements.
 
-Le calcul du délai considère bien tous les pixels du capteur. Les pixels avec moins de deux événements sont comptes, mais ils n'ont pas de délai inter-event défini.
-Les résolutions utilisées sont `240x180` pour VIVID et `346x260` pour les simulateurs. Idealement, lorsque les simulateurs le permettent, la résolution doit être réglée directement dans leurs paramètres pour se rapprocher de VIVID ou travailler avec une résolution commune.
+Le calcul du délai considère bien tous les pixels du capteur. Les pixels avec moins de deux événements sont comptés, mais ils n'ont pas de délai inter-event défini.
+Les résolutions utilisées sont `240x180` pour VIVID et `346x260` pour les simulateurs. Idéalement, lorsque les simulateurs le permettent, la résolution doit être réglée directement dans leurs paramètres pour se rapprocher de VIVID ou travailler avec une résolution commune.
 
 ### Lecture des colonnes
 
-Les tableaux utilisent deux types de comparaison'avec VIVID.
+Les tableaux utilisent deux types de comparaison avec VIVID.
 
-- `events/s`, `events/pixel`, `ON ratio`, `pixels utilisés` et `délai/pixel` sont les valeurs moyennes mesurees pour chaque source.
-- `pixels avec délai` indique la fraction des pixels qui ont au moins deux événements, donc pour lesquels un délai inter-event peut être calcule.
-- `events/s vs VIVID`, `events/pixel vs VIVID` et `délai vs VIVID` sont des ratios: `1.0` signifie identique a VIVID, `2.0` signifie deux fois plus grand que VIVID, et `0.5` signifie deux fois plus faible.
-- `ON diff pp` est l'écart du ratio ON par rapport a VIVID, en points de pourcentage. Par exemple, si VIVID vaut `42%` et un simulateur vaut `50%`, alors `ON diff pp = +8`.
-- `pixels diff pp` est l'écart de la fraction de pixels utilisés par rapport a VIVID, aussi en points de pourcentage. Une valeur negative signifie que le simulateur activé moins de pixels que VIVID.
+- `events/s`, `events/pixel`, `ON ratio`, `pixels utilisés` et `délai/pixel` sont les valeurs moyennes mesurées pour chaque source.
+- `pixels avec délai` indique la fraction des pixels qui ont au moins deux événements, donc pour lesquels un délai inter-event peut être calculé.
+- `events/s vs VIVID`, `events/pixel vs VIVID` et `délai vs VIVID` sont des ratios : `1.0` signifie identique à VIVID, `2.0` signifie deux fois plus grand que VIVID, et `0.5` signifie deux fois plus faible.
+- `ON diff pp` est l'écart du ratio ON par rapport à VIVID, en points de pourcentage. Par exemple, si VIVID vaut `42%` et un simulateur vaut `50%`, alors `ON diff pp = +8`.
+- `pixels diff pp` est l'écart de la fraction de pixels utilisés par rapport à VIVID, aussi en points de pourcentage. Une valeur négative signifie que le simulateur activé moins de pixels que VIVID.
 - `RMSE fenêtres` mesure l'écart entre les courbes `events/s` par fenêtre temporelle du simulateur et de VIVID. Plus la valeur est faible, plus la dynamique temporelle globale est proche.
 
 ### Vérification rapide
 
-- Fichiers analyses: 60.
-- Fichiers invalides: 0.
-- Fichiers avec timestamps non ordonnés sur échantillon: 10.
+- Fichiers analysés : 60.
+- Fichiers invalides : 0.
+- Fichiers avec timestamps non ordonnés sur échantillon : 10.
 
 Les timestamps non ordonnés concernent `pix2nvs`. Les métriques de comptage restent exploitables, mais toute analyse temporelle fine de `pix2nvs` doit rester prudente.
 
@@ -382,14 +382,14 @@ Les timestamps non ordonnés concernent `pix2nvs`. Les métriques de comptage re
 
 ### Critère de proximité
 
-Pour eviter toute ambiguite, le meme critère est applique partout dans le rapport:
+Pour éviter toute ambiguïté, le même critère est appliqué partout dans le rapport :
 
 - pour un ratio, le plus proche de VIVID minimise `abs(ratio - 1)`;
 - pour une différence en points de pourcentage, le plus proche minimise `abs(diff_pp)`.
 
-Application globale du critère:
+Application globale du critère :
 
-| Metrique | Plus proche | Valeur | Distance | Critère |
+| Métrique | Plus proche | Valeur | Distance | Critère |
 | --- | --- | --- | --- | --- |
 | events/s | pix2nvs | 1.632 | 0.632 | abs(ratio - 1) |
 | events/pixel | pix2nvs | 0.779 | 0.221 | abs(ratio - 1) |
@@ -399,17 +399,17 @@ Application globale du critère:
 
 ### Volume d'événements
 
-VIVID produit en moyenne `1.95e+05` events/s. `pix2nvs` reste le plus proche en volume moyen, meme s'il reste au-dessus de VIVID avec un facteur `1.632`.
+VIVID produit en moyenne `1.95e+05` events/s. `pix2nvs` reste le plus proche en volume moyen, même s'il reste au-dessus de VIVID avec un facteur `1.632`.
 `v2e` et `vid2e` sont nettement plus élevés: environ `11.34`x et `14.37`x VIVID.
-Cela suggere une génération d'événements plus dense, probablement liée aux seuils, au bruit ou a l'interpolation temporelle.
+Cela suggère une génération d'événements plus dense, probablement liée aux seuils, au bruit ou à l'interpolation temporelle.
 
 ![events/s](comparaison/figures/01_events_per_second.png)
 
-### Evenements par pixel
+### Événements par pixel
 
 Cette métrique corrige la différence de résolution entre VIVID et les simulateurs.
 Sur la moyenne globale, `pix2nvs` est le plus proche de VIVID avec un facteur `0.779`: il est légèrement en dessous de VIVID, alors que `iebcs` est au-dessus avec un facteur `1.454`.
-`iebcs` reste interessant car il garde une couverture du capteur très complète, mais il n'est pas le plus proche globalement sur `events/pixel`.
+`iebcs` reste intéressant car il garde une couverture du capteur très complète, mais il n'est pas le plus proche globalement sur `events/pixel`.
 `v2e` et `vid2e` restent largement au-dessus, donc l'écart de volume ne vient pas seulement du nombre de pixels du capteur.
 
 ![events/pixel](comparaison/figures/02_events_per_pixel.png)
@@ -417,20 +417,20 @@ Sur la moyenne globale, `pix2nvs` est le plus proche de VIVID avec un facteur `0
 ### Ratio ON
 
 VIVID a un ratio ON plus bas que la plupart des simulateurs. Les simulateurs tendent souvent vers une polarité plus proche de 50/50.
-Cette différence peut indiquer que les modèles de seuil ON/OFF ou de contraste ne reproduisent pas exactement le desequilibre de VIVID.
+Cette différence peut indiquer que les modèles de seuil ON/OFF ou de contraste ne reproduisent pas exactement le déséquilibre de VIVID.
 
 ![ON ratio](comparaison/figures/03_on_fraction.png)
 
 ### Pixels utilisés
 
-La plupart des méthodes activent une grande partie du capteur, mais `pix2nvs`, `v2e` et `vid2e` utilisent moins de pixels dans certaines conditions, surtout dans les scenes sombres.
+La plupart des méthodes activent une grande partie du capteur, mais `pix2nvs`, `v2e` et `vid2e` utilisent moins de pixels dans certaines conditions, surtout dans les scènes sombres.
 Cette métrique aide a distinguer un simulateur qui produit beaucoup d'événements partout d'un simulateur qui concentre l'activité sur moins de pixels.
 
 ![pixels utilisés](comparaison/figures/04_active_pixel_fraction.png)
 
-### Delai inter-event par pixel
+### Délai inter-event par pixel
 
-Le délai inter-event complète la lecture du volume: si un simulateur produit beaucoup plus d'événements, on s'attend souvent a des délais plus courts.
+Le délai inter-event complète la lecture du volume: si un simulateur produit beaucoup plus d'événements, on s'attend souvent à des délais plus courts.
 `v2e` et `vid2e` ont effectivement des délais beaucoup plus courts que VIVID, ce qui confirme une dynamique plus dense.
 `pix2nvs` est proche de VIVID sur le délai moyen, mais la remarque sur l'ordre temporel reste importante.
 
@@ -438,14 +438,14 @@ Le délai inter-event complète la lecture du volume: si un simulateur produit b
 
 ### Events/s par fenêtre temporelle
 
-Cette figure montre si les pics d'activité arrivent globalement aux memes moments.
-Elle evite de conclure uniquement a partir d'une moyenne: deux simulateurs peuvent avoir un volume moyen proche mais des pics temporels mal places.
+Cette figure montre si les pics d'activité arrivent globalement aux mêmes moments.
+Elle évite de conclure uniquement à partir d'une moyenne : deux simulateurs peuvent avoir un volume moyen proche mais des pics temporels mal placés.
 
 ![events/s par fenêtre](comparaison/figures/06_events_per_second_by_temporal_window.png)
 
 ### Analyse par condition
 
-Les moyennes globales cachent une partie du comportement. Ici, chaque condition'est comparee a VIVID dans la meme condition.
+Les moyennes globales cachent une partie du comportement. Ici, chaque condition est comparée à VIVID dans la même condition.
 
 | Condition | Source | events/s vs VIVID | events/pixel vs VIVID | ON diff pp | pixels diff pp | délai vs VIVID |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -474,9 +474,9 @@ Les moyennes globales cachent une partie du comportement. Ici, chaque condition'
 | varying | v2e | 15.66 | 7.522 | 15.40 | 0.000 | 0.114 |
 | varying | vid2e | 23.61 | 11.08 | 15.39 | 0.000 | 0.079 |
 
-Meilleurs simulateurs par condition'avec le critère uniforme:
+Meilleurs simulateurs par condition avec le critère uniforme :
 
-| Condition | Metrique | Plus proche | Valeur | Distance | Critère |
+| Condition | Métrique | Plus proche | Valeur | Distance | Critère |
 | --- | --- | --- | --- | --- | --- |
 | dark | events/s | iebcs | 0.981 | 0.019 | abs(ratio - 1) |
 | dark | events/pixel | dvs_voltmeter | 0.505 | 0.495 | abs(ratio - 1) |
@@ -499,22 +499,22 @@ Meilleurs simulateurs par condition'avec le critère uniforme:
 | varying | ON ratio | iebcs | 11.97 | 11.97 | abs(diff_pp) |
 | varying | pixels utilisés | dvs_voltmeter | 0.000 | 0.000 | abs(diff_pp) |
 
-Lecture synthétique:
+Lecture synthétique :
 
-Ici, `plus proche` signifie: ratio le plus proche de `1` pour `events/s`, `events/pixel` et le délai; écart le plus proche de `0` pour le ratio ON.
+Ici, `plus proche` signifie : ratio le plus proche de `1` pour `events/s`, `events/pixel` et le délai ; écart le plus proche de `0` pour le ratio ON.
 
 - `dark`: plus proche en `events/s`: `iebcs`; plus proche en `events/pixel`: `dvs_voltmeter`; plus proche en ratio ON: `pix2nvs`.
 - `global`: plus proche en `events/s`: `pix2nvs`; plus proche en `events/pixel`: `iebcs`; plus proche en ratio ON: `iebcs`.
 - `local`: plus proche en `events/s`: `pix2nvs`; plus proche en `events/pixel`: `pix2nvs`; plus proche en ratio ON: `iebcs`.
 - `varying`: plus proche en `events/s`: `pix2nvs`; plus proche en `events/pixel`: `pix2nvs`; plus proche en ratio ON: `iebcs`.
 
-`dark` met davantage en evidence le bruit et les seuils de déclenchement. `global` et `local` révèlent surtout les écarts de volume. `varying` teste la robustesse quand l'intensité change au cours du temps.
+`dark` met davantage en évidence le bruit et les seuils de déclenchement. `global` et `local` révèlent surtout les écarts de volume. `varying` teste la robustesse quand l'intensité change au cours du temps.
 
-### Analyse par regime
+### Analyse par régime
 
-Les regimes `aggressive`, `robust` et `unstable` donnent une deuxieme lecture des memes données.
+Les régimes `aggressive`, `robust` et `unstable` donnent une deuxième lecture des mêmes données.
 
-| Regime | Source | events/s vs VIVID | events/pixel vs VIVID | ON diff pp | pixels diff pp | délai vs VIVID |
+| Régime | Source | events/s vs VIVID | events/pixel vs VIVID | ON diff pp | pixels diff pp | délai vs VIVID |
 | --- | --- | --- | --- | --- | --- | --- |
 | aggressive | vivid | 1.000 | 1.000 | 0.000 | 0.000 | 1.000 |
 | aggressive | dvs_voltmeter | 4.548 | 1.986 | 9.872 | 0.028 | 0.723 |
@@ -535,9 +535,9 @@ Les regimes `aggressive`, `robust` et `unstable` donnent une deuxieme lecture de
 | unstable | v2e | 10.35 | 4.340 | 7.245 | -5.362 | 0.170 |
 | unstable | vid2e | 12.64 | 5.165 | 7.113 | -5.102 | 0.101 |
 
-Meilleurs simulateurs par regime avec le critère uniforme:
+Meilleurs simulateurs par régime avec le critère uniforme :
 
-| Regime | Metrique | Plus proche | Valeur | Distance | Critère |
+| Régime | Métrique | Plus proche | Valeur | Distance | Critère |
 | --- | --- | --- | --- | --- | --- |
 | aggressive | events/s | pix2nvs | 1.356 | 0.356 | abs(ratio - 1) |
 | aggressive | events/pixel | iebcs | 0.940 | 0.060 | abs(ratio - 1) |
@@ -555,9 +555,9 @@ Meilleurs simulateurs par regime avec le critère uniforme:
 | unstable | ON ratio | iebcs | 6.865 | 6.865 | abs(diff_pp) |
 | unstable | pixels utilisés | dvs_voltmeter | 0.042 | 0.042 | abs(diff_pp) |
 
-Lecture synthétique:
+Lecture synthétique :
 
-Le meme critère est utilisé: ratio le plus proche de `1`, ou écart ON le plus proche de `0`.
+Le même critère est utilisé : ratio le plus proche de `1`, ou écart ON le plus proche de `0`.
 
 - `aggressive`: plus proche en `events/s`: `pix2nvs`; plus proche en `events/pixel`: `iebcs`; plus proche en ratio ON: `iebcs`.
 - `robust`: plus proche en `events/s`: `pix2nvs`; plus proche en `events/pixel`: `pix2nvs`; plus proche en ratio ON: `pix2nvs`.
@@ -567,19 +567,18 @@ Le meme critère est utilisé: ratio le plus proche de `1`, ou écart ON le plus
 
 Globalement, le plus proche de VIVID est `pix2nvs` pour `events/s`, `pix2nvs` pour `events/pixel`, `pix2nvs` pour le délai, `iebcs` pour le ratio ON, et `dvs_voltmeter` pour la couverture de pixels.
 `pix2nvs` ressort donc très proche sur plusieurs mesures globales. Cette proximité doit toutefois être lue avec prudence, car ses timestamps ne sont pas toujours ordonnés et sa couverture de pixels est plus faible.
-`iebcs` n'est pas le meilleur sur le volume global, mais il apparait comme un compromis propre: volume modere, ratio ON relativement proche, et couverture quasi complète du capteur.
+`iebcs` n'est pas le meilleur sur le volume global, mais il apparait comme un compromis propre: volume modéré, ratio ON relativement proche, et couverture quasi complète du capteur.
 `dvs_voltmeter` couvre très bien le capteur, mais son volume et son ratio ON sont plus éloignés de VIVID.
 `v2e` et `vid2e` produisent beaucoup plus d'événements que VIVID et des délais inter-event plus courts, ce qui indique une dynamique plus dense.
 
 ### Limites possibles
 
-- VIVID est traite comme référence, mais cela ne prouve pas qu'il soit une vérité absolue pour toutes les scenes.
-- Les simulateurs n'ont pas forcement ete calibrés avec les memes seuils, bruit, latence ou modèle de capteur.
-- `events/pixel` corrige la résolution, mais l'ideal reste de régler, lorsque possible, la résolution directement dans les paramètres des simulateurs afin de partir d'un capteur comparable.
+- VIVID est traité comme référence, mais cela ne prouve pas qu'il soit une vérité absolue pour toutes les scènes.
+- Les simulateurs n'ont pas forcément été calibrés avec les mêmes seuils, bruit, latence ou modèle de capteur.
+- `events/pixel` corrige la résolution, mais l'idéal reste de régler, lorsque possible, la résolution directement dans les paramètres des simulateurs afin de partir d'un capteur comparable.
 - Les timestamps non ordonnés de `pix2nvs` limitent les conclusions temporelles fines.
-- Les figures temporelles sont moyennees sur les séquences; une analyse plus poussée pourrait regarder chaque séquence séparément.
 
-### Sources utilisées pour interpreter les simulateurs
+### Sources utilisées pour interpréter les simulateurs
 
 - v2e: https://github.com/SensorsINI/v2e
 - IEBCS: https://github.com/neuromorphicsystems/IEBCS
