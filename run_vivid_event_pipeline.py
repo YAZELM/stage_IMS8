@@ -1,9 +1,15 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""Préparation des séquences et lancement des simulateurs DVS."""
+"""Pipeline principale pour preparer ViViD++ et lancer les simulateurs DVS.
+
+Le script fait trois choses: preparer les entrees RGB, lancer les simulateurs
+externes configures dans le YAML, puis conserver une trace des commandes et des
+temps d execution. Les conversions AER et la comparaison sont faites par les
+scripts du dossier scripts/.
+"""
 
 from __future__ import annotations
-import argparse, json, os, re, shutil, subprocess, sys
+import argparse, json, os, re, shutil, subprocess, sys, time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -19,6 +25,10 @@ try:
     import cv2
 except ImportError:
     cv2 = None
+
+# ---------------------------------------------------------------------------
+# Petites structures et helpers generaux
+# ---------------------------------------------------------------------------
 
 @dataclass
 class Sequence:
@@ -41,6 +51,143 @@ def save_json(path: Path, obj: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(obj, f, indent=2, ensure_ascii=False, default=str)
+
+
+# ---------------------------------------------------------------------------
+# Suivi du temps d execution
+# ---------------------------------------------------------------------------
+
+def format_duration(seconds: float) -> str:
+    """Formate une duree en texte court pour les logs."""
+    seconds = max(0.0, float(seconds))
+    hours, rem = divmod(seconds, 3600)
+    minutes, sec = divmod(rem, 60)
+    if hours >= 1:
+        return f"{int(hours):02d}:{int(minutes):02d}:{sec:06.3f}"
+    return f"{int(minutes):02d}:{sec:06.3f}"
+
+
+def append_timing_record(work: Path, record: Dict[str, Any]) -> None:
+    """Ajoute une mesure de temps dans un journal JSONL cumulatif."""
+    path = work / "pipeline_timings.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
+
+
+def load_timing_records(work: Path, run_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Relit les mesures de temps, en filtrant si besoin sur le run courant."""
+    path = work / "pipeline_timings.jsonl"
+    if not path.exists():
+        return []
+
+    records: List[Dict[str, Any]] = []
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if run_id is None or rec.get("run_id") == run_id:
+                records.append(rec)
+    return records
+
+
+def write_timing_summary(work: Path, run_id: Optional[str] = None) -> Dict[str, Any]:
+    """Construit un resume des temps par phase, simulateur et sequence."""
+    records = load_timing_records(work, run_id=run_id)
+
+    total_s = 0.0
+    by_phase: Dict[str, float] = {}
+    by_simulator: Dict[str, float] = {}
+    by_sequence: Dict[str, float] = {}
+
+    for rec in records:
+        duration_s = float(rec.get("duration_s") or 0.0)
+        total_s += duration_s
+
+        phase = str(rec.get("phase") or "unknown")
+        by_phase[phase] = by_phase.get(phase, 0.0) + duration_s
+
+        sequence = str(rec.get("sequence") or "unknown")
+        by_sequence[sequence] = by_sequence.get(sequence, 0.0) + duration_s
+
+        simulator = rec.get("simulator")
+        if simulator:
+            simulator = str(simulator)
+            by_simulator[simulator] = by_simulator.get(simulator, 0.0) + duration_s
+
+    def pack_totals(values: Dict[str, float]) -> Dict[str, Dict[str, Any]]:
+        return {
+            key: {
+                "duration_s": round(value, 6),
+                "duration": format_duration(value),
+            }
+            for key, value in sorted(values.items())
+        }
+
+    summary = {
+        "created_at": datetime.now().isoformat(),
+        "run_id": run_id,
+        "n_records": len(records),
+        "total_duration_s": round(total_s, 6),
+        "total_duration": format_duration(total_s),
+        "by_phase": pack_totals(by_phase),
+        "by_simulator": pack_totals(by_simulator),
+        "by_sequence": pack_totals(by_sequence),
+        "jsonl_log": str((work / "pipeline_timings.jsonl").resolve()),
+        "records": records,
+    }
+    save_json(work / "pipeline_timings.json", summary)
+    return summary
+
+
+def timed_call(work: Path, run_id: str, phase: str, sequence_name: str,
+               func: Any, *args: Any, simulator: Optional[str] = None,
+               **kwargs: Any) -> Any:
+    """Execute une etape en enregistrant sa duree et son statut."""
+    started_at = datetime.now()
+    start_perf = time.perf_counter()
+    status = "ok"
+    error = None
+
+    try:
+        return func(*args, **kwargs)
+    except Exception as exc:
+        status = "error"
+        error = f"{type(exc).__name__}: {exc}"
+        raise
+    finally:
+        ended_at = datetime.now()
+        duration_s = time.perf_counter() - start_perf
+        record: Dict[str, Any] = {
+            "run_id": run_id,
+            "phase": phase,
+            "sequence": sequence_name,
+            "simulator": simulator,
+            "status": status,
+            "started_at": started_at.isoformat(),
+            "ended_at": ended_at.isoformat(),
+            "duration_s": round(duration_s, 6),
+            "duration": format_duration(duration_s),
+        }
+        if error is not None:
+            record["error"] = error
+
+        append_timing_record(work, record)
+
+        label_parts = [phase]
+        if simulator:
+            label_parts.append(simulator)
+        label_parts.append(sequence_name)
+        print(f"[TIMER] {' :: '.join(label_parts)} -> {record['duration']} ({status})")
+
+# ---------------------------------------------------------------------------
+# Commandes externes et fichiers partages
+# ---------------------------------------------------------------------------
 
 def run_cmd(cmd: List[str], cwd: Optional[Path] = None, dry_run: bool = False, log_path: Optional[Path] = None) -> None:
     printable = " ".join(map(str, cmd))
@@ -82,6 +229,10 @@ def list_files(root: Path, exts: Iterable[str]) -> List[Path]:
     exts_l = {e.lower() for e in exts}
     return sorted([p for p in root.rglob("*") if p.is_file() and p.suffix.lower() in exts_l])
 
+# ---------------------------------------------------------------------------
+# Lecture et preparation des sequences RGB
+# ---------------------------------------------------------------------------
+
 def fps_from_ffprobe(video: Path, fallback: float) -> float:
     try:
         out = subprocess.check_output(
@@ -106,21 +257,23 @@ def find_timestamp_file_near(path: Path) -> Optional[Path]:
     candidates = [p for p in candidates if p.is_file() and "prepared" not in str(p)]
     return sorted(candidates, key=lambda p: (len(str(p)), str(p)))[0] if candidates else None
 
-def parse_timestamps_file(path: Optional[Path]) -> Optional[List[float]]:
-    """Parse timestamps robustly and return relative seconds.
+def parse_timestamps_file(path: Optional[Path], unit: str = "s") -> Optional[List[float]]:
+    """Parse un fichier de timestamps avec une unite declaree explicitement.
 
-    Supported formats:
+    Formats acceptes:
     - timestamp
     - index,timestamp
     - timestamp,filename
     - index,timestamp,filename
-    - whitespace/semicolon/comma separated values
-
-    Unit inference is based on the median positive delta, not on absolute value.
-    This avoids corrupting epoch timestamps expressed in seconds.
+    - valeurs separees par espace, virgule ou point-virgule
     """
     if path is None:
         return None
+
+    unit = unit.lower()
+    scale = {"s": 1.0, "ms": 1e-3, "us": 1e-6, "ns": 1e-9}.get(unit)
+    if scale is None:
+        raise ValueError(f"Unite de timestamp inconnue: {unit}. Utiliser s, ms, us ou ns.")
 
     vals: List[float] = []
     try:
@@ -137,8 +290,8 @@ def parse_timestamps_file(path: Optional[Path]) -> Optional[List[float]]:
                         pass
                 if not nums:
                     continue
-                                                                                
-                                                                                          
+                # Si la ligne ressemble a index,timestamp, on prend la seconde valeur.
+                # Sinon, on prend la derniere valeur numerique, utile pour timestamp,filename.
                 if len(nums) >= 2 and abs(nums[0] - round(nums[0])) < 1e-9:
                     vals.append(nums[1])
                 else:
@@ -149,27 +302,7 @@ def parse_timestamps_file(path: Optional[Path]) -> Optional[List[float]]:
     if len(vals) < 2:
         return None
 
-    arr = np.asarray(vals, dtype=np.float64)
-    diffs = np.diff(arr)
-    diffs = diffs[diffs > 0]
-    if diffs.size == 0:
-        return None
-
-    med_dt = float(np.median(diffs))
-
-                              
-                                  
-                                
-                                      
-                                            
-    if med_dt > 1e6:
-        arr = arr / 1e9
-    elif med_dt > 1e3:
-        arr = arr / 1e6
-    elif med_dt > 10:
-        arr = arr / 1e3
-                                                                      
-
+    arr = np.asarray(vals, dtype=np.float64) * scale
     arr = arr - arr[0]
     return [float(x) for x in arr]
 
@@ -325,7 +458,8 @@ def prepare_sequence(seq: Sequence, cfg: Dict[str, Any]) -> Path:
     fps_fallback = float(general.get("fps_fallback", 30.0))
     extract_fps = general.get("extract_fps")
     resize = general["resize"]
-    timestamps_s = parse_timestamps_file(find_timestamp_file_near(seq.source))
+    timestamp_unit = str(general.get("timestamp_unit", "s"))
+    timestamps_s = parse_timestamps_file(find_timestamp_file_near(seq.source), unit=timestamp_unit)
 
     if seq.kind == "video" and seq.video:
         src_fps = fps_from_ffprobe(seq.video, fps_fallback)
@@ -385,6 +519,10 @@ def prepared_sequences(cfg: Dict[str, Any]) -> List[Path]:
     root = Path(cfg["paths"]["work_dir"]).expanduser() / "prepared"
     return sorted([p for p in root.iterdir() if p.is_dir() and (p / "manifest.json").exists()]) if root.exists() else []
 
+# ---------------------------------------------------------------------------
+# Acces a la configuration des simulateurs
+# ---------------------------------------------------------------------------
+
 def python_for(cfg: Dict[str, Any], key: str) -> str:
     pythons = cfg["paths"].get("pythons", {})
     return pythons.get(key) or pythons.get("default") or sys.executable
@@ -409,6 +547,10 @@ def link_frames(src_frames: Path, dst_imgs: Path, overwrite: bool) -> int:
     for i, fr in enumerate(frames):
         symlink_or_copy(fr, dst_imgs / f"{i:06d}.png", overwrite=True)
     return len(frames)
+
+# ---------------------------------------------------------------------------
+# Lancement des simulateurs
+# ---------------------------------------------------------------------------
 
 def run_v2e(cfg: Dict[str, Any], prepared: Path) -> None:
     simcfg = cfg["v2e"]
@@ -454,38 +596,81 @@ def run_v2e(cfg: Dict[str, Any], prepared: Path) -> None:
     run_cmd(cmd, dry_run=cfg["general"].get("dry_run", False), log_path=common_log(work, "v2e", manifest["name"]))
 
 def run_vid2e(cfg: Dict[str, Any], prepared: Path) -> None:
+    """Lance Vid2E via un wrapper local base sur esim_py.
+
+    Le wrapper n est pas dans les simulateurs externes: il doit etre present dans
+    adapters/. Cette verification explicite evite de lancer une commande partielle
+    ou silencieusement differente de la methode documentee.
+    """
     simcfg = cfg["vid2e"]
-    if not simcfg.get("enabled", True): return
+
+    if not simcfg.get("enabled", True):
+        return
+
     manifest = load_manifest(prepared)
     work = Path(cfg["paths"]["work_dir"]).expanduser()
     repo = repo_path(cfg, "vid2e")
     py = python_for(cfg, "vid2e")
     p = simcfg["params"]
-    original_root = work / "simulator_inputs" / "vid2e_original" / manifest["name"]
-    original_seq = original_root / manifest["name"]
-    upsampled_root = work / "simulator_inputs" / "vid2e_upsampled" / manifest["name"]
-    out = work / "simulated_events" / "vid2e" / manifest["name"]
+
     overwrite = cfg["general"].get("overwrite", True)
-    link_frames(prepared / "frames", original_seq / "imgs", overwrite=overwrite)
-    (original_seq / "fps.txt").write_text(f"{manifest['fps']:.9f}\n")
-    if p.get("use_upsampling", True):
-        cmd_up = [py, str(repo / "upsampling" / "upsample.py"), "--input_dir", str(original_root),
-                  "--output_dir", str(upsampled_root)] + [str(x) for x in p.get("extra_upsample_args", [])]
-        save_json(out / "upsample_command.json", {"cmd": cmd_up, "params": p, "manifest": manifest})
-        run_cmd(cmd_up, cwd=repo, dry_run=cfg["general"].get("dry_run", False), log_path=common_log(work, "vid2e_upsample", manifest["name"]))
-        generate_input = upsampled_root
-    else:
-        generate_input = upsampled_root
-        seq_dst = generate_input / manifest["name"]
-        link_frames(prepared / "frames", seq_dst / "imgs", overwrite=overwrite)
-        shutil.copy2(prepared / "timestamps_s.txt", seq_dst / "timestamps.txt")
-    cmd_gen = [py, str(repo / "esim_torch" / "scripts" / "generate_events.py"),
-               "--input_dir", str(generate_input), "--output_dir", str(out),
-               "--contrast_threshold_negative", str(p.get("contrast_threshold_negative", 0.2)),
-               "--contrast_threshold_positive", str(p.get("contrast_threshold_positive", 0.2)),
-               "--refractory_period_ns", str(p.get("refractory_period_ns", 0))] + [str(x) for x in p.get("extra_generate_args", [])]
-    save_json(out / "generate_command.json", {"cmd": cmd_gen, "params": p, "manifest": manifest})
-    run_cmd(cmd_gen, cwd=repo, dry_run=cfg["general"].get("dry_run", False), log_path=common_log(work, "vid2e_generate", manifest["name"]))
+    dry_run = cfg["general"].get("dry_run", False)
+
+    out = work / "simulated_events" / "vid2e" / manifest["name"]
+    out.mkdir(parents=True, exist_ok=True)
+
+    input_root = work / "simulator_inputs" / "vid2e_cpu" / manifest["name"]
+    frames_dir = input_root / "frames"
+
+    link_frames(
+        prepared / "frames",
+        frames_dir,
+        overwrite=overwrite,
+    )
+
+    timestamps_file = input_root / "timestamps.txt"
+    shutil.copy2(prepared / "timestamps_s.txt", timestamps_file)
+
+    wrapper = Path(__file__).resolve().parent / "adapters" / "run_vid2e_esim_py_sequence.py"
+
+    if not wrapper.exists():
+        raise RuntimeError(f"Wrapper Vid2E CPU introuvable : {wrapper}")
+
+    out_npz = out / "events.npz"
+
+    cmd = [
+        py,
+        str(wrapper),
+        "--frames", str(frames_dir),
+        "--timestamps", str(timestamps_file),
+        "--out_npz", str(out_npz),
+        "--contrast_threshold_negative", str(p.get("contrast_threshold_negative", 0.2)),
+        "--contrast_threshold_positive", str(p.get("contrast_threshold_positive", 0.2)),
+        "--refractory_period_ns", str(p.get("refractory_period_ns", 0)),
+        "--log_eps", str(p.get("log_eps", 1e-3)),
+        "--use_log", str(int(p.get("use_log", True))),
+    ]
+
+    cmd += [str(x) for x in p.get("extra_generate_args", [])]
+
+    save_json(out / "command.json", {
+        "cmd": cmd,
+        "params": p,
+        "manifest": manifest,
+        "mode": "cpu_esim_py",
+        "repo": str(repo),
+        "input_frames": str(frames_dir),
+        "timestamps": str(timestamps_file),
+        "output_npz": str(out_npz),
+    })
+
+    run_cmd(
+        cmd,
+        cwd=repo,
+        dry_run=dry_run,
+        log_path=common_log(work, "vid2e_generate", manifest["name"])
+    )
+
 
 def run_iebcs(cfg: Dict[str, Any], prepared: Path) -> None:
     simcfg = cfg["iebcs"]
@@ -530,47 +715,193 @@ def run_dvs_voltmeter(cfg: Dict[str, Any], prepared: Path) -> None:
     save_json(out / "command.json", {"cmd": cmd, "params": p, "manifest": manifest})
     run_cmd(cmd, cwd=repo, dry_run=cfg["general"].get("dry_run", False), log_path=common_log(work, "dvs_voltmeter", manifest["name"]))
 
+
 def run_pix2nvs(cfg: Dict[str, Any], prepared: Path) -> None:
+    """
+    Lance PIX2NVS en reproduisant exactement son usage manuel.
+
+    PIX2NVS doit être lancé depuis son propre dossier Linux_user :
+    - l'exécutable est dans ce dossier ;
+    - ffmpeg et ffprobe sont dans ce dossier ;
+    - la vidéo d'entrée doit être copiée dans input/ ;
+    - les sorties sont générées dans events/ ou Events/.
+    """
     simcfg = cfg["pix2nvs"]
-    if not simcfg.get("enabled", True): return
+
+    if not simcfg.get("enabled", True):
+        return
+
     manifest = load_manifest(prepared)
     work = Path(cfg["paths"]["work_dir"]).expanduser()
     repo = repo_path(cfg, "pix2nvs")
     p = simcfg["params"]
-    input_dir = repo / "input"
-    input_dir.mkdir(parents=True, exist_ok=True)
-    symlink_or_copy(prepared / "video.mp4", input_dir / f"{manifest['name']}.mp4", overwrite=True)
-    binary = repo / "pix2nvs"
-    if not binary.exists():
-        if cfg["general"].get("dry_run", False):
-            print("[DRY] g++ -o pix2nvs src/*.cpp")
-        else:
-            proc = subprocess.run("g++ -o pix2nvs src/*.cpp", cwd=str(repo), shell=True, text=True,
-                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-            if proc.returncode != 0:
-                raise RuntimeError(f"Compilation PIX2NVS échouée : {proc.stdout}")
+
+    dry_run = cfg["general"].get("dry_run", False)
+    overwrite = cfg["general"].get("overwrite", True)
+
     out = work / "simulated_events" / "pix2nvs" / manifest["name"]
     out.mkdir(parents=True, exist_ok=True)
-    cmd = [str(binary), "-r", str(p.get("reference", 3)), "-a", str(p.get("adaptive", 0)), "-b", str(p.get("blocksize", 4))]
-    if p.get("maxevents") is not None: cmd += ["-m", str(p["maxevents"])]
+
+    # ------------------------------------------------------------
+    # 1. Trouver l'exécutable PIX2NVS qui fonctionne manuellement
+    # ------------------------------------------------------------
+    binary_candidates = [
+        repo / "PIX2NVS",
+        repo / "pix2nvs",
+        repo / "Pix2NVS",
+    ]
+
+    binary = None
+
+    for candidate in binary_candidates:
+        if candidate.exists() and candidate.is_file():
+            binary = candidate
+            break
+
+    if binary is None:
+        raise RuntimeError(
+            f"PIX2NVS: aucun exécutable trouvé dans {repo}. "
+            f"Attendu : PIX2NVS, pix2nvs ou Pix2NVS."
+        )
+
+    try:
+        binary.chmod(binary.stat().st_mode | 0o111)
+    except PermissionError:
+        pass
+
+    # ------------------------------------------------------------
+    # 2. Vérifier ffmpeg et ffprobe dans le même dossier
+    # ------------------------------------------------------------
+    for tool in ["ffmpeg", "ffprobe"]:
+        tool_path = repo / tool
+
+        if not tool_path.exists():
+            raise RuntimeError(
+                f"PIX2NVS: {tool} absent dans {repo}. "
+                f"Tu as dit que ça marche quand ffmpeg/ffprobe sont dans ce dossier : "
+                f"il faut donc les laisser ici."
+            )
+
+        try:
+            tool_path.chmod(tool_path.stat().st_mode | 0o111)
+        except PermissionError:
+            pass
+
+    # ------------------------------------------------------------
+    # 3. Nettoyer les anciennes entrées/sorties PIX2NVS
+    # ------------------------------------------------------------
+    input_dir = repo / "input"
+
+    possible_output_dirs = [
+        repo / "events",
+        repo / "Events",
+        repo / "EVENTS",
+        repo / "frames",
+        repo / "Frames",
+        repo / "FRAMES",
+    ]
+
+    if overwrite:
+        for d in possible_output_dirs:
+            if d.exists():
+                shutil.rmtree(d)
+
+        if input_dir.exists():
+            shutil.rmtree(input_dir)
+
+    input_dir.mkdir(parents=True, exist_ok=True)
+
+    # ------------------------------------------------------------
+    # 4. Mettre la vidéo préparée dans input/
+    # ------------------------------------------------------------
+    input_video = input_dir / f"{manifest['name']}.mp4"
+
+    symlink_or_copy(
+        prepared / "video.mp4",
+        input_video,
+        overwrite=True
+    )
+
+    # 5. Construire la commande avec les parametres declares dans le YAML.
+    cmd = [
+        str(binary),
+        "-r", str(p.get("reference", 3)),
+        "-a", str(p.get("adaptive", 0)),
+        "-b", str(p.get("blocksize", 4)),
+    ]
+
+    if p.get("maxevents") is not None:
+        cmd += ["-m", str(p["maxevents"])]
+
     cmd += [str(x) for x in p.get("extra_args", [])]
-    save_json(out / "command.json", {"cmd": cmd, "params": p, "manifest": manifest})
-    run_cmd(cmd, cwd=repo, dry_run=cfg["general"].get("dry_run", False), log_path=common_log(work, "pix2nvs", manifest["name"]))
-    events_dir = repo / "Events"
-    if events_dir.exists() and not cfg["general"].get("dry_run", False):
-        archived = out / "Events"
-        if archived.exists(): shutil.rmtree(archived)
-        shutil.copytree(events_dir, archived)
+
+    save_json(out / "command.json", {
+        "cmd": cmd,
+        "params": p,
+        "manifest": manifest,
+        "pix2nvs_repo": str(repo),
+        "binary": str(binary),
+        "input_video": str(input_video),
+        "mode": "manual_layout_reproduction",
+    })
+
+    # 6. Lancer PIX2NVS depuis son propre dossier de travail.
+    run_cmd(
+        cmd,
+        cwd=repo,
+        dry_run=dry_run,
+        log_path=common_log(work, "pix2nvs", manifest["name"])
+    )
+
+    # 7. Archiver les sorties generees dans runs/simulated_events/pix2nvs/<sequence>.
+    copied = False
+
+    for dname in ["events", "Events", "EVENTS"]:
+        events_dir = repo / dname
+
+        if events_dir.exists() and not dry_run:
+            archived = out / dname
+
+            if archived.exists():
+                shutil.rmtree(archived)
+
+            shutil.copytree(events_dir, archived)
+            print(f"[PIX2NVS] {dname}/ archivé dans : {archived}")
+            copied = True
+
+    for dname in ["frames", "Frames", "FRAMES"]:
+        frames_dir = repo / dname
+
+        if frames_dir.exists() and not dry_run:
+            archived = out / dname
+
+            if archived.exists():
+                shutil.rmtree(archived)
+
+            shutil.copytree(frames_dir, archived)
+            print(f"[PIX2NVS] {dname}/ archivé dans : {archived}")
+
+    if not copied:
+        raise RuntimeError(
+            f"PIX2NVS terminé, mais aucun dossier events/ ou Events/ trouvé dans {repo}."
+        )
+
+
+# ---------------------------------------------------------------------------
+# Resume final et interface CLI
+# ---------------------------------------------------------------------------
 
 def write_summary(cfg: Dict[str, Any]) -> None:
     work = Path(cfg["paths"]["work_dir"]).expanduser()
-    summary = {"created_at": datetime.now().isoformat(), "prepared": [], "outputs": {}}
+    run_id = cfg.get("_run_id")
+    summary = {"created_at": datetime.now().isoformat(), "run_id": run_id, "prepared": [], "outputs": {}}
     for p in prepared_sequences(cfg):
         summary["prepared"].append(load_manifest(p))
     for sim in ["v2e", "vid2e", "iebcs", "dvs_voltmeter", "pix2nvs"]:
         out = work / "simulated_events" / sim
         if out.exists():
             summary["outputs"][sim] = [str(x) for x in sorted(out.iterdir()) if x.is_dir()]
+    summary["timings"] = write_timing_summary(work, run_id=run_id)
     save_json(work / "pipeline_summary.json", summary)
 
 def main() -> None:
@@ -581,34 +912,43 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     cfg = load_yaml(Path(args.config))
+    cfg["_run_id"] = datetime.now().strftime("%Y%m%d_%H%M%S")
     if args.dry_run:
         cfg["general"]["dry_run"] = True
     work = Path(cfg["paths"]["work_dir"]).expanduser()
     work.mkdir(parents=True, exist_ok=True)
     save_json(work / "pipeline_config_used.json", cfg)
 
-    if args.prepare:
-        seqs = discover_sequences(cfg)
-        if not seqs:
-            raise SystemExit("Aucune séquence RGB/vidéo détectée. Vérifie paths.vivid_output.")
-        print(f"[INFO] {len(seqs)} séquence(s) détectée(s).")
-        for seq in seqs:
-            prepare_sequence(seq, cfg)
+    try:
+        if args.prepare:
+            seqs = discover_sequences(cfg)
+            if not seqs:
+                raise SystemExit("Aucune séquence RGB/vidéo détectée. Vérifie paths.vivid_output.")
+            print(f"[INFO] {len(seqs)} séquence(s) détectée(s).")
+            for seq in seqs:
+                timed_call(
+                    work, cfg["_run_id"], "prepare_sequence", seq.name,
+                    prepare_sequence, seq, cfg
+                )
 
-    if args.run:
-        preps = prepared_sequences(cfg)
-        if not preps:
-            raise SystemExit("Aucune séquence préparée. Lance d'abord --prepare.")
-        runners = {"v2e": run_v2e, "vid2e": run_vid2e, "iebcs": run_iebcs,
-                   "dvs_voltmeter": run_dvs_voltmeter, "pix2nvs": run_pix2nvs}
-        selected = list(runners.keys()) if args.run == "all" else [args.run]
-        for prepared in preps:
-            for sim in selected:
-                print(f"\n===== {sim} :: {prepared.name} =====")
-                runners[sim](cfg, prepared)
-
-    write_summary(cfg)
-    print(f"\n[FINI] Résumé : {work / 'pipeline_summary.json'}")
+        if args.run:
+            preps = prepared_sequences(cfg)
+            if not preps:
+                raise SystemExit("Aucune séquence préparée. Lance d'abord --prepare.")
+            runners = {"v2e": run_v2e, "vid2e": run_vid2e, "iebcs": run_iebcs,
+                       "dvs_voltmeter": run_dvs_voltmeter, "pix2nvs": run_pix2nvs}
+            selected = list(runners.keys()) if args.run == "all" else [args.run]
+            for prepared in preps:
+                for sim in selected:
+                    print(f"\n===== {sim} :: {prepared.name} =====")
+                    timed_call(
+                        work, cfg["_run_id"], "event_generation", prepared.name,
+                        runners[sim], cfg, prepared, simulator=sim
+                    )
+    finally:
+        write_summary(cfg)
+        print(f"\n[INFO] Résumé : {work / 'pipeline_summary.json'}")
+        print(f"[INFO] Chronométrage : {work / 'pipeline_timings.json'}")
 
 if __name__ == "__main__":
     main()

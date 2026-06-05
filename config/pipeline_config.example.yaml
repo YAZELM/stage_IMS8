@@ -29,6 +29,7 @@ general:
   image_exts: [".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"]
   preferred_image_dirs: ["frames_rgb", "frames", "images", "imgs"]
   fps_fallback: 30.0
+  timestamp_unit: s
   extract_fps:
   start_s: 0.0
   stop_s:
@@ -70,13 +71,15 @@ v2e:
     extra_args: []
 
 vid2e:
-  enabled: true
+  # Le wrapper local est fourni dans adapters/. Garder false si esim_py
+  # n'est pas installe dans l'environnement Python utilise pour Vid2E.
+  enabled: false
   params:
-    use_upsampling: true
     contrast_threshold_negative: 0.2
     contrast_threshold_positive: 0.2
     refractory_period_ns: 0
-    extra_upsample_args: []
+    log_eps: 0.001
+    use_log: true
     extra_generate_args: []
 
 iebcs:

@@ -1,6 +1,11 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
+"""Controle rapide de la configuration avant de lancer la pipeline.
 
+Le but n est pas de tester les simulateurs en profondeur, mais de detecter tot
+les chemins manquants, les outils Linux necessaires et les interpreteurs Python
+mal configures.
+"""
 from __future__ import annotations
 
 # Vérifie rapidement que les chemins principaux du projet sont configurés.
@@ -14,7 +19,7 @@ try:
 except ImportError:
     raise SystemExit('PyYAML is missing. Install with: pip install pyyaml')
 
-
+# Petit helper pour afficher les chemins trouves et accumuler les erreurs.
 def check_path(label: str, path: Path, required: bool, errors: list[str], warnings: list[str]) -> None:
     if path.exists():
         print(f'[OK] {label}: {path}')
@@ -27,7 +32,7 @@ def check_path(label: str, path: Path, required: bool, errors: list[str], warnin
             warnings.append(msg)
             print(f'[WARN] {msg}')
 
-
+# Le main lit la config, verifie les scripts locaux, puis inspecte les dependances externes.
 def main() -> int:
     ap = argparse.ArgumentParser(description='Check project layout and configuration paths.')
     ap.add_argument('--config', type=Path, default=Path('config/pipeline_config.yaml'))
@@ -44,7 +49,7 @@ def main() -> int:
     check_path('IEBCS adapter', root / 'adapters' / 'run_iebcs_sequence.py', True, errors, warnings)
     check_path('converter', root / 'scripts' / '02_convert_simulator_outputs_to_aer_npz.py', True, errors, warnings)
     check_path('real ViViD++ converter', root / 'scripts' / '03_prepare_vivid_real_events_to_aer_npz.py', True, errors, warnings)
-    check_path('comparison script', root / 'scripts' / '04_compare_vivid_vs_sim_scientific_log.py', True, errors, warnings)
+    check_path('comparison script', root / 'scripts' / 'run_clear_fundamental_comparison.py', True, errors, warnings)
 
     if not args.config.exists():
         print('\n[DONE] Configuration file is missing.')

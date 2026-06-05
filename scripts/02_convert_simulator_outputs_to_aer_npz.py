@@ -1,36 +1,14 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
+"""Convertit les sorties brutes des simulateurs vers un format AER commun.
 
+Chaque simulateur ecrit ses evenements avec ses propres fichiers, unites de temps
+et conventions de polarite. Ce script centralise cette normalisation pour obtenir
+un `.npz` comparable: `x`, `y`, `t` en secondes et `p` avec 0=OFF, 1=ON.
 """
-convert_simulator_outputs_to_npz.py
-
-Convertit les sorties brutes des simulateurs video-to-event vers un format AER unifié :
-    x, y, t, p
-
-Convention de sortie :
-    x : np.uint16
-    y : np.uint16
-    t : np.float64, en secondes
-    p : np.uint8, 0 = OFF, 1 = ON
-
-Structure de sortie :
-    OUT_ROOT/
-      v2e/<sequence>.npz
-      vid2e/<sequence>.npz
-      iebcs/<sequence>.npz
-      dvs_voltmeter/<sequence>.npz
-      pix2nvs/<sequence>.npz
-
-Usage :
-    python convert_simulator_outputs_to_npz.py \
-      --sim-root runs/simulated_events \
-      --out-root runs/aer_npz \
-      --overwrite
-"""
-
 from __future__ import annotations
 
-# Convertit les sorties des simulateurs vers le format NPZ AER commun.
+# La liste sert a garder un ordre stable et a eviter de parcourir des dossiers non prevus.
 
 import argparse
 import csv
@@ -46,7 +24,35 @@ import numpy as np
 
 SIMULATORS = ["v2e", "vid2e", "iebcs", "dvs_voltmeter", "pix2nvs"]
 
+# Unites documentees/controlees par simulateur. On evite le mode auto pour ne
+# pas baser la comparaison sur une estimation d ordre de grandeur.
+SIMULATOR_TIME_UNITS = {
+    "v2e": "s",
+    "vid2e": "s",
+    "iebcs": "us",
+    "dvs_voltmeter": "us",
+    "pix2nvs": "us",
+}
 
+TEXT_EVENT_ORDERS = {
+    "v2e": "t x y p",
+    "vid2e": "t x y p",
+    "iebcs": "t x y p",
+    "dvs_voltmeter": "t x y p",
+    "pix2nvs": "x y t p",
+}
+
+ARRAY_EVENT_ORDERS = {
+    "v2e": "x y t p",
+    "vid2e": "t x y p",
+    "iebcs": "t x y p",
+    "dvs_voltmeter": "t x y p",
+    "pix2nvs": "x y t p",
+}
+
+VALID_TIME_UNITS = {"s", "ms", "us", "ns"}
+
+# Structure interne: elle garde les tableaux d evenements et quelques informations sur leur origine.
 @dataclass
 class Events:
     x: np.ndarray
@@ -66,7 +72,7 @@ def eprint(*args, **kwargs) -> None:
 def ensure_dir(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
 
-
+# Normalisation scientifique: polarite et temps doivent avoir la meme convention avant toute comparaison.
 def normalize_polarity(p: np.ndarray) -> np.ndarray:
     """Convention unifiée : 0 = OFF, 1 = ON.
 
@@ -98,11 +104,8 @@ def normalize_polarity(p: np.ndarray) -> np.ndarray:
     return (p > 0).astype(np.uint8)
 
 
-def convert_time_to_seconds(t: np.ndarray, unit: str = "auto") -> Tuple[np.ndarray, str]:
-    """
-    Convertit les timestamps vers les secondes.
-    unit = s, ms, us, ns ou auto.
-    """
+def convert_time_to_seconds(t: np.ndarray, unit: str) -> Tuple[np.ndarray, str]:
+    """Convertit les timestamps vers les secondes avec une unite explicite."""
     t = np.asarray(t, dtype=np.float64)
     if t.size == 0:
         return t, unit
@@ -112,23 +115,34 @@ def convert_time_to_seconds(t: np.ndarray, unit: str = "auto") -> Tuple[np.ndarr
         return t, "s"
     if unit in ["ms", "millisecond", "milliseconds"]:
         return t / 1e3, "ms"
-    if unit in ["us", "µs", "microsecond", "microseconds"]:
+    if unit in ["us", "?s", "microsecond", "microseconds"]:
         return t / 1e6, "us"
     if unit in ["ns", "nanosecond", "nanoseconds"]:
         return t / 1e9, "ns"
-    if unit != "auto":
-        raise ValueError(f"Unknown time unit: {unit}")
 
-    max_abs = float(np.nanmax(np.abs(t)))
-    if max_abs > 1e9:
-        return t / 1e9, "ns(auto)"
-    if max_abs > 1e4:
-        return t / 1e6, "us(auto)"
-    if max_abs > 1e2:
-        return t / 1e3, "ms(auto)"
-    return t, "s(auto)"
+    raise ValueError(f"Unknown explicit time unit: {unit}")
 
 
+def time_unit_for(simulator: str, args: argparse.Namespace) -> str:
+    # L'unite vient d'abord de la table documentee. Un override CLI reste possible,
+    # mais il doit etre explicite, par exemple --time-unit v2e=s.
+    return args.time_units.get(simulator, SIMULATOR_TIME_UNITS[simulator])
+
+
+def split_event_columns(arr: np.ndarray, order: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, str]:
+    """Rearrange un tableau Nx4 selon un ordre documente, sans detection auto."""
+    if arr.ndim != 2 or arr.shape[1] < 4:
+        raise ValueError("Need an Nx4 array to split event columns")
+
+    order_norm = " ".join(order.lower().replace(",", " ").split())
+    cols = {name: arr[:, idx] for idx, name in enumerate(order_norm.split())}
+    required = {"x", "y", "t", "p"}
+    if not required.issubset(cols):
+        raise ValueError(f"Unsupported documented event order: {order}")
+    return cols["x"], cols["y"], cols["t"], cols["p"], order_norm
+
+
+# Nettoyage commun: on aligne les longueurs, on retire les valeurs invalides et on trie par temps.
 def clean_events(
     x: np.ndarray,
     y: np.ndarray,
@@ -198,11 +212,7 @@ def save_metadata(events: Events, out_file: Path, simulator: str, sequence: str)
     }
     out_file.write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
 
-
-                                                                       
-              
-                                                                       
-
+# Lecteurs de fichiers: chaque bloc lit un format brut different, puis renvoie le meme objet Events.
 def _parse_numeric_event_lines(path: Path, min_cols: int = 4) -> np.ndarray:
     rows: List[List[float]] = []
     with path.open("r", encoding="utf-8", errors="ignore") as f:
@@ -228,65 +238,15 @@ def _parse_numeric_event_lines(path: Path, min_cols: int = 4) -> np.ndarray:
 
 
 def read_txt_events(path: Path, order: str, time_unit: str) -> Events:
-    """
-    order :
-      - "t x y p"
-      - "x y t p"
-      - "auto"
-    """
     arr = _parse_numeric_event_lines(path, min_cols=4)
-    order_norm = " ".join(order.lower().replace(",", " ").split())
-
-    if order_norm == "t x y p":
-        t_raw, x, y, p = arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3]
-    elif order_norm == "x y t p":
-        x, y, t_raw, p = arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3]
-    elif order_norm == "auto":
-        x, y, t_raw, p, detected = infer_txt_columns(arr)
-        order_norm = detected
-    else:
-        raise ValueError(f"Unsupported text order '{order}'.")
-
+    x, y, t_raw, p, order_norm = split_event_columns(arr, order)
     t, used_unit = convert_time_to_seconds(t_raw, time_unit)
     return clean_events(x, y, t, p, str(path), "txt", order_norm, used_unit)
 
 
-def infer_txt_columns(arr: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, str]:
-    if arr.shape[1] < 4:
-        raise ValueError("Need at least 4 columns for auto detection")
 
-    p_col = 3
-    best_score = -1.0
-    for c in range(4):
-        vals = arr[:, c]
-        score = np.mean(np.isin(np.round(vals).astype(int), [-1, 0, 1]))
-        if score > best_score:
-            best_score = score
-            p_col = c
-
-    remaining = [c for c in range(4) if c != p_col]
-    best_t_col = remaining[0]
-    best_tuple = (-1.0, -1.0)
-    for c in remaining:
-        vals = arr[:, c]
-        monotonic_score = np.mean(np.diff(vals) >= 0) if len(vals) > 1 else 1.0
-        dyn = float(np.nanmax(vals) - np.nanmin(vals))
-        score_tuple = (monotonic_score, dyn)
-        if score_tuple > best_tuple:
-            best_tuple = score_tuple
-            best_t_col = c
-
-    xy_cols = [c for c in remaining if c != best_t_col]
-    x_col, y_col = xy_cols[0], xy_cols[1]
-    detected = f"auto: col{x_col}=x col{y_col}=y col{best_t_col}=t col{p_col}=p"
-    return arr[:, x_col], arr[:, y_col], arr[:, best_t_col], arr[:, p_col], detected
-
-
-                                                                       
-             
-                                                                       
-
-def read_npz_events(path: Path, simulator: str, time_unit: str = "auto") -> Events:
+# Les fichiers NPZ peuvent contenir des noms de tableaux differents selon le simulateur.
+def read_npz_events(path: Path, simulator: str, time_unit: str) -> Events:
     data = np.load(path, allow_pickle=False)
     keys = set(data.files)
 
@@ -298,17 +258,8 @@ def read_npz_events(path: Path, simulator: str, time_unit: str = "auto") -> Even
         raw_order = "xs ys ts ps"
     elif "events" in keys:
         arr = np.asarray(data["events"])
-        if arr.ndim != 2 or arr.shape[1] < 4:
-            raise ValueError(f"{path}: dataset 'events' must be Nx4")
-        if simulator in ["vid2e", "dvs_voltmeter", "iebcs"]:
-            t_raw, x, y, p = arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3]
-            raw_order = "events: t x y p"
-        elif simulator == "pix2nvs":
-            x, y, t_raw, p = arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3]
-            raw_order = "events: x y t p"
-        else:
-            x, y, t_raw, p, detected = infer_txt_columns(arr[:, :4].astype(np.float64))
-            raw_order = detected
+        x, y, t_raw, p, order_norm = split_event_columns(arr[:, :4], ARRAY_EVENT_ORDERS[simulator])
+        raw_order = f"events: {order_norm}"
     else:
         raise ValueError(f"{path}: unsupported npz keys: {sorted(keys)}")
 
@@ -316,13 +267,13 @@ def read_npz_events(path: Path, simulator: str, time_unit: str = "auto") -> Even
     return clean_events(x, y, t, p, str(path), "npz", raw_order, used_unit)
 
 
-                                                                       
-                   
-                                                                       
+
+
+
 
 def _require_h5py():
     try:
-        import h5py                
+        import h5py
         return h5py
     except ImportError as exc:
         raise ImportError("h5py is required to read .h5 files. Install it with: pip install h5py") from exc
@@ -330,7 +281,7 @@ def _require_h5py():
 
 def _collect_h5_datasets(h5_obj) -> Dict[str, np.ndarray]:
     out: Dict[str, np.ndarray] = {}
-    import h5py                
+    import h5py
 
     def visit(name, obj):
         if isinstance(obj, h5py.Dataset):
@@ -347,8 +298,8 @@ def _find_dataset_by_names(datasets: Dict[str, np.ndarray], names: Sequence[str]
                 return value
     return None
 
-
-def read_h5_events(path: Path, time_unit: str = "auto") -> Events:
+# Lecture HDF5: utile notamment pour les sorties v2e qui sauvegardent souvent les evenements en h5.
+def read_h5_events(path: Path, simulator: str, time_unit: str) -> Events:
     h5py = _require_h5py()
     with h5py.File(path, "r") as f:
         datasets = _collect_h5_datasets(f)
@@ -365,23 +316,19 @@ def read_h5_events(path: Path, time_unit: str = "auto") -> Events:
     for key, value in datasets.items():
         arr = np.asarray(value)
         if arr.ndim == 2 and arr.shape[1] >= 4:
-            x, y, t_raw, p, detected = infer_txt_columns(arr[:, :4].astype(np.float64))
+            x, y, t_raw, p, order_norm = split_event_columns(arr[:, :4], ARRAY_EVENT_ORDERS[simulator])
             t, used_unit = convert_time_to_seconds(t_raw, time_unit)
-            return clean_events(x, y, t, p, str(path), "h5", f"{key}: {detected}", used_unit)
+            return clean_events(x, y, t, p, str(path), "h5", f"{key}: {order_norm}", used_unit)
 
     raise ValueError(f"{path}: no recognizable event datasets found in h5 file")
 
-
-                                                                       
-                             
-                                                                       
-
+# Lecture DAT IEBCS: on decode le format binaire quand le txt n est pas disponible.
 def read_dat_event_icns(path: Path) -> Events:
     with path.open("rb") as f:
         header_bytes = b""
         last_pos = f.tell()
         line = f.readline()
-        while line and len(line) > 0 and line[0] == 37:       
+        while line and len(line) > 0 and line[0] == 37:
             header_bytes += line
             last_pos = f.tell()
             line = f.readline()
@@ -430,11 +377,7 @@ def read_dat_event_icns(path: Path) -> Events:
     t, used_unit = convert_time_to_seconds(ts, "us")
     return clean_events(x, y, t, p, str(path), "dat", "DAT: t_us + packed(x,y,p)", used_unit)
 
-
-                                                                       
-           
-                                                                       
-
+# Decouverte des fichiers: on cherche les candidats dans une structure par simulateur et sequence.
 def is_sequence_dir(path: Path) -> bool:
     return path.is_dir() and not path.name.startswith("_")
 
@@ -520,34 +463,28 @@ def sequence_name_from_dir(seq_dir: Path, sim_dir: Path) -> str:
     return sim_dir.name if seq_dir == sim_dir else seq_dir.name
 
 
-                                                                       
-                             
-                                                                       
+
+
+
 
 def read_candidate(path: Path, simulator: str, args: argparse.Namespace) -> Events:
     suffix = path.suffix.lower()
+    unit = time_unit_for(simulator, args)
 
     if suffix == ".npz":
-        return read_npz_events(path, simulator=simulator, time_unit=args.auto_time_unit)
+        return read_npz_events(path, simulator=simulator, time_unit=unit)
     if suffix in [".h5", ".hdf5"]:
-        return read_h5_events(path, time_unit=args.auto_time_unit)
+        return read_h5_events(path, simulator=simulator, time_unit=unit)
     if suffix == ".dat":
         if simulator != "iebcs":
             raise ValueError(f"{path}: .dat reader is implemented for ICNS/IEBCS only")
         return read_dat_event_icns(path)
     if suffix == ".txt":
-        if simulator == "dvs_voltmeter":
-            return read_txt_events(path, order="t x y p", time_unit="us")
-        if simulator == "iebcs":
-            return read_txt_events(path, order="t x y p", time_unit="us")
-        if simulator == "pix2nvs":
-            return read_txt_events(path, order="x y t p", time_unit="us")
-        if simulator in ["v2e", "vid2e"]:
-            return read_txt_events(path, order="auto", time_unit=args.auto_time_unit)
+        return read_txt_events(path, order=TEXT_EVENT_ORDERS[simulator], time_unit=unit)
 
     raise ValueError(f"Unsupported candidate file: {path}")
 
-
+# Conversion d une sequence: on choisit le meilleur candidat lisible puis on sauvegarde NPZ + metadata.
 def convert_one_sequence(
     simulator: str,
     sim_dir: Path,
@@ -606,7 +543,7 @@ def convert_one_sequence(
         "time_unit_in": events.time_unit_in,
     }
 
-
+# Le CSV de resume sert a verifier rapidement quelles sequences ont ete converties ou ignorees.
 def write_summary_csv(rows: List[Dict[str, object]], out_file: Path) -> None:
     ensure_dir(out_file.parent)
     fieldnames = [
@@ -620,11 +557,7 @@ def write_summary_csv(rows: List[Dict[str, object]], out_file: Path) -> None:
         for row in rows:
             writer.writerow({k: row.get(k, "") for k in fieldnames})
 
-
-                                                                       
-     
-                                                                       
-
+# Interface CLI: les chemins restent explicites pour que le script soit simple a relancer sous Linux.
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Convert simulator event outputs to unified AER .npz files.")
     parser.add_argument("--sim-root", type=Path, required=True,
@@ -635,15 +568,34 @@ def parse_args() -> argparse.Namespace:
                         help="Simulators to convert.")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing .npz files.")
     parser.add_argument("--compress", action="store_true", help="Use compressed npz. Smaller but slower.")
-    parser.add_argument("--auto-time-unit", default="auto", choices=["auto", "s", "ms", "us", "ns"],
-                        help="Time unit for ambiguous v2e/Vid2E formats.")
+    parser.add_argument("--time-unit", action="append", default=[], metavar="SIM=UNIT",
+                        help="Override an explicit simulator time unit, e.g. v2e=s or pix2nvs=us.")
     parser.add_argument("--strict", action="store_true", help="Stop on first error.")
     parser.add_argument("--verbose", action="store_true", help="Print detailed warnings.")
     return parser.parse_args()
 
 
+def parse_time_unit_overrides(values: Sequence[str]) -> Dict[str, str]:
+    overrides: Dict[str, str] = {}
+    for value in values:
+        if "=" not in value:
+            raise ValueError(f"Invalid --time-unit value '{value}'. Expected SIM=UNIT.")
+        simulator, unit = [part.strip().lower() for part in value.split("=", 1)]
+        if simulator not in SIMULATORS:
+            raise ValueError(f"Unknown simulator in --time-unit: {simulator}")
+        if unit not in VALID_TIME_UNITS:
+            raise ValueError(f"Unknown unit for {simulator}: {unit}. Expected one of {sorted(VALID_TIME_UNITS)}")
+        overrides[simulator] = unit
+    return overrides
+
+
 def main() -> int:
     args = parse_args()
+    try:
+        args.time_units = parse_time_unit_overrides(args.time_unit)
+    except ValueError as exc:
+        eprint(f"[ERROR] {exc}")
+        return 2
     sim_root: Path = args.sim_root.expanduser().resolve()
     out_root: Path = args.out_root.expanduser().resolve()
 
@@ -657,7 +609,7 @@ def main() -> int:
     for simulator in args.simulators:
         sim_dir = sim_root / simulator
 
-                                                
+
         ensure_dir(out_root / simulator)
 
         if not sim_dir.exists():

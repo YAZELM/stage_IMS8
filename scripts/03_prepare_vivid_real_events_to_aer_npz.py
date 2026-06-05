@@ -1,32 +1,11 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
+"""Prepare les evenements DVS reels ViViD++ au format AER commun.
+
+Les evenements reels servent de reference dans la comparaison. Ce script assemble
+les fragments `.npz` d une sequence, remet le temps a zero et sauvegarde un seul
+fichier `vivid/<sequence>.npz` comparable aux sorties des simulateurs.
 """
-Prepare real ViViD++ DVS events for the common AER NPZ folder.
-
-Input:
-    <vivid_root>/<sequence>/events/*.npz
-
-Output:
-    <aer_npz_root>/vivid/<sequence>.npz
-
-Unified output format:
-    x : int32
-    y : int32
-    t : float64, seconds, starts at 0 for each sequence
-    p : uint8, 0 = OFF, 1 = ON
-
-Reports:
-    <aer_npz_root>/vivid_conversion_report.csv
-    <aer_npz_root>/vivid_fragment_report.csv
-    <aer_npz_root>/vivid_load_errors.csv
-
-Example:
-    python prepare_vivid_real_events_to_aer_npz.py \
-      --vivid-root ./data/outputs \
-      --aer-npz-root ./runs/vivid_event_runs/aer_npz \
-      --overwrite
-"""
-
 from __future__ import annotations
 
 # Prépare les événements réels ViViD++ au même format que les simulations.
@@ -53,9 +32,12 @@ def write_csv(path: Path, rows: List[Dict]) -> None:
         w.writeheader()
         w.writerows(rows)
 
-
-def time_to_seconds(t: np.ndarray, unit: str = "auto") -> np.ndarray:
+# Comme pour les simulateurs, le temps et la polarite sont normalises avant la sauvegarde finale.
+def time_to_seconds(t: np.ndarray, unit: str) -> np.ndarray:
+    # Les fragments produits par dataset_pipeline utilisent t en secondes.
+    # Si un autre export VIVID est utilise, l unite doit etre indiquee explicitement.
     t = np.asarray(t, dtype=np.float64)
+    unit = unit.lower()
     if unit == "s":
         return t
     if unit == "ms":
@@ -64,29 +46,16 @@ def time_to_seconds(t: np.ndarray, unit: str = "auto") -> np.ndarray:
         return t * 1e-6
     if unit == "ns":
         return t * 1e-9
-    if t.size == 0:
-        return t
-    finite = t[np.isfinite(t)]
-    if finite.size == 0:
-        return t
-    span = float(np.nanmax(finite) - np.nanmin(finite))
-    med = float(np.nanmedian(np.abs(finite)))
-    if med > 1e12 or span > 1e12:
-        return t * 1e-9
-    if med > 1e6 or span > 1e4:
-        return t * 1e-6
-    if span > 1000:
-        return t * 1e-3
-    return t
+    raise ValueError(f"Unknown explicit time unit: {unit}")
 
 
 def normalize_polarity(p: np.ndarray) -> np.ndarray:
-    """Return p in {0,1}, with 0=OFF and 1=ON."""
+    """Ramene la polarite vers 0=OFF et 1=ON, quelle que soit la convention lue."""
     p = np.asarray(p)
     if p.size == 0:
         return p.astype(np.uint8)
     vals = set(np.unique(p).astype(np.int64).tolist())
-                                               
+
     if vals.issubset({1, 255}):
         return (p == 1).astype(np.uint8)
     if vals.issubset({0, 1}):
@@ -98,49 +67,9 @@ def normalize_polarity(p: np.ndarray) -> np.ndarray:
     return (p > 0).astype(np.uint8)
 
 
-def infer_cols(arr: np.ndarray) -> Tuple[int, int, int, int, str]:
-    """
-    Fallback for NPZ containing a single Nx4 array.
-    Prefer x,y,t,p, but can handle common alternatives.
-    """
-    arr = np.asarray(arr)
-    if arr.ndim != 2 or arr.shape[1] < 4:
-        raise ValueError("expected Nx4 event array")
-    a = arr[: min(len(arr), 200000), :4]
 
-    p_candidates = []
-    for j in range(4):
-        if np.unique(a[:, j]).size <= 8:
-            p_candidates.append(j)
-    p_col = 3 if 3 in p_candidates else (p_candidates[-1] if p_candidates else 3)
-
-                                                                              
-    if p_col != 2:
-        col2 = a[:, 2].astype(np.float64)
-        if col2.size and np.nanmax(col2) > np.nanmin(col2):
-            t_col = 2
-        else:
-            t_col = None
-    else:
-        t_col = None
-
-    if t_col is None:
-        remain = [j for j in range(4) if j != p_col]
-        scores = []
-        for j in remain:
-            c = a[:, j].astype(np.float64)
-            span = float(np.nanmax(c) - np.nanmin(c)) if c.size else 0.0
-            mono = float(np.mean(np.diff(c) >= 0)) if c.size > 1 else 0.0
-            scores.append((mono, span, j))
-        t_col = sorted(scores, reverse=True)[0][2]
-
-    xy = [j for j in range(4) if j not in (t_col, p_col)]
-    if len(xy) != 2:
-        return 0, 1, 2, 3, "fallback:x,y,t,p"
-    return xy[0], xy[1], t_col, p_col, f"inferred:x={xy[0]},y={xy[1]},t={t_col},p={p_col}"
-
-
-def load_events_npz(path: Path, unit: str = "auto") -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, Dict]:
+# Chargement d un fragment: on accepte plusieurs schemas et on renvoie toujours x,y,t,p.
+def load_events_npz(path: Path, unit: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, Dict]:
     data = np.load(path, allow_pickle=False)
     keys = set(data.files)
 
@@ -151,18 +80,10 @@ def load_events_npz(path: Path, unit: str = "auto") -> Tuple[np.ndarray, np.ndar
         x, y, t, p = data["xs"], data["ys"], data["ts"], data["ps"]
         fmt = "keys:xs,ys,ts,ps"
     else:
-        arr = None
-        arr_key = None
-        for k in ("events", "event", "arr_0"):
-            if k in keys and data[k].ndim == 2 and data[k].shape[1] >= 4:
-                arr = data[k][:, :4]
-                arr_key = k
-                break
-        if arr is None:
-            raise ValueError(f"no AER arrays found, keys={data.files}")
-        xc, yc, tc, pc, desc = infer_cols(arr)
-        x, y, t, p = arr[:, xc], arr[:, yc], arr[:, tc], arr[:, pc]
-        fmt = f"array:{arr_key};{desc}"
+        raise ValueError(
+            f"no explicit VIVID AER arrays found in {path}; "
+            f"expected x,y,t,p or xs,ys,ts,ps, got keys={data.files}"
+        )
 
     x = np.asarray(x).astype(np.int32, copy=False).ravel()
     y = np.asarray(y).astype(np.int32, copy=False).ravel()
@@ -182,7 +103,7 @@ def load_events_npz(path: Path, unit: str = "auto") -> Tuple[np.ndarray, np.ndar
     rep = {
         "file": str(path),
         "keys": ",".join(data.files),
-        "detected_format": fmt,
+        "format": fmt,
         "n_events": int(len(t)),
         "t_min_s": float(np.min(t)) if len(t) else float("nan"),
         "t_max_s": float(np.max(t)) if len(t) else float("nan"),
@@ -196,7 +117,7 @@ def load_events_npz(path: Path, unit: str = "auto") -> Tuple[np.ndarray, np.ndar
     }
     return x, y, t, p, rep
 
-
+# Decouverte des sequences VIVID: chaque dossier sequence peut contenir plusieurs fragments NPZ.
 def discover(vivid_root: Path) -> Dict[str, List[Path]]:
     out = {}
     for seq_dir in sorted(vivid_root.iterdir()):
@@ -207,13 +128,13 @@ def discover(vivid_root: Path) -> Dict[str, List[Path]]:
                 out[seq_dir.name] = files
     return out
 
-
+# Assemblage d une sequence: on utilise des memmaps pour limiter la memoire sur les gros fichiers.
 def convert_sequence(seq: str, fragments: List[Path], out_file: Path, tmp_dir: Path, unit: str, overwrite: bool, sort_final: bool):
     frag_rows, err_rows = [], []
     if out_file.exists() and not overwrite:
         return {"sequence": seq, "status": "skipped_exists", "out_file": str(out_file)}, frag_rows, err_rows
 
-                                     
+
     total = 0
     t_min, t_max = math.inf, -math.inf
     x_max, y_max = -1, -1
@@ -264,11 +185,11 @@ def convert_sequence(seq: str, fragments: List[Path], out_file: Path, tmp_dir: P
         pos += n
 
     if sort_final:
-                                                          
+
         order = np.argsort(t_mm)
         np.savez_compressed(out_file, x=x_mm[order], y=y_mm[order], t=t_mm[order], p=p_mm[order])
     else:
-                                             
+
         np.savez_compressed(out_file, x=np.asarray(x_mm), y=np.asarray(y_mm), t=np.asarray(t_mm), p=np.asarray(p_mm))
 
     for f in (x_tmp, y_tmp, t_tmp, p_tmp):
@@ -298,12 +219,12 @@ def convert_sequence(seq: str, fragments: List[Path], out_file: Path, tmp_dir: P
     }
     return summary, frag_rows, err_rows
 
-
+# Interface CLI: on produit le dossier vivid/ et trois rapports de controle.
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--vivid-root", type=Path, default=Path("./data/outputs"))
-    ap.add_argument("--aer-npz-root", type=Path, default=Path("./runs/vivid_event_runs/aer_npz"))
-    ap.add_argument("--time-unit", choices=["auto", "s", "ms", "us", "ns"], default="auto")
+    ap.add_argument("--aer-npz-root", type=Path, default=Path("./runs/aer_npz"))
+    ap.add_argument("--time-unit", choices=["s", "ms", "us", "ns"], default="s")
     ap.add_argument("--overwrite", action="store_true")
     ap.add_argument("--sort-final", action="store_true", help="Sort final events by timestamp. More rigorous but uses more memory.")
     args = ap.parse_args()

@@ -1,16 +1,11 @@
-#!/usr/bin/env python3
-"""
-Comparaison simple entre VIVID et les simulateurs.
+#!/usr/bin/env python
+"""Calcule les metriques fondamentales entre VIVID et les simulateurs.
 
-Le script lit les fichiers unifies en .npz et calcule seulement:
-- events/s
-- events/pixel
-- fraction ON
-- fraction de pixels actifs
-- delai inter-event par pixel
-- events/s par fenetre temporelle
+Le script regenere uniquement les CSV et les figures. Le rapport Markdown reste
+un document statique, ce qui evite de le modifier par accident quand on relance
+une comparaison. Les commentaires suivent les grandes etapes de l'analyse pour
+rendre les choix de metriques plus faciles a justifier.
 """
-
 from __future__ import annotations
 
 import argparse
@@ -25,7 +20,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-
+# Ordre et couleurs fixes: les figures restent comparables d une execution a l autre.
 SIM_ORDER = ["vivid", "dvs_voltmeter", "iebcs", "pix2nvs", "v2e", "vid2e"]
 COLORS = {
     "vivid": "#111111",
@@ -39,7 +34,7 @@ COLORS = {
 CONDITION_ORDER = ["dark", "global", "local", "varying"]
 REGIME_ORDER = ["aggressive", "robust", "unstable"]
 
-
+# Les noms de sequences portent les conditions experimentales; on les extrait pour analyser par famille.
 def sequence_condition(sequence: str):
     name = sequence.lower().replace("aggresive", "aggressive")
     family = "other"
@@ -58,14 +53,18 @@ def sequence_condition(sequence: str):
         regime = "other"
     return family, regime
 
+# Lecture des donnees: on accepte les deux organisations rencontrees pendant le projet.
+def choose_npz(path: Path) -> Path | None:
+    # Un simulateur peut fournir un dossier par sequence ou directement un fichier .npz.
+    if path.is_file() and path.suffix.lower() == ".npz":
+        return path
 
-def choose_npz(folder: Path) -> Path | None:
-    # Pour IEBCS, on garde la version decodee depuis le dat si elle existe.
     for name in ("events.npz", "events_from_dat.npz", "events_from_txt.npz"):
-        path = folder / name
-        if path.exists():
-            return path
-    files = sorted(folder.glob("*.npz"))
+        candidate = path / name
+        if candidate.exists():
+            return candidate
+
+    files = sorted(path.glob("*.npz"))
     return files[0] if files else None
 
 
@@ -76,17 +75,42 @@ def resolution(simulator: str, args) -> tuple[int, int]:
 
 
 def load_npz(path: Path):
+    # La comparaison attend uniquement le format AER defini par le projet:
+    # x, y, t, p avec t exprime en secondes. Les conversions amont doivent donc
+    # deja avoir normalise les unites et l ordre des colonnes.
     data = np.load(path, allow_pickle=False)
-    needed = {"t_us", "x", "y", "p"}
-    missing = needed - set(data.files)
-    if missing:
-        raise ValueError(f"{path} manque les champs {sorted(missing)}")
-    return data["t_us"], data["x"], data["y"], data["p"]
+    keys = set(data.files)
 
+    if not {"x", "y", "t", "p"}.issubset(keys):
+        raise ValueError(f"{path} doit contenir le format AER strict: x,y,t,p avec t en secondes")
 
+    t_s = data["t"].astype(np.float64)
+    t_us = np.round(t_s * 1_000_000).astype(np.int64)
+    x = data["x"]
+    y = data["y"]
+    p = data["p"]
+
+    x = x.astype(np.int64)
+    y = y.astype(np.int64)
+    p = p.astype(np.int64)
+
+    if p.size:
+        vals = set(np.unique(p).tolist())
+        if vals.issubset({0, 1}):
+            p = np.where(p > 0, 1, -1).astype(np.int8)
+        elif vals.issubset({-1, 1}):
+            p = p.astype(np.int8)
+        elif vals.issubset({1, 255}):
+            p = np.where(p == 1, 1, -1).astype(np.int8)
+        else:
+            p = np.where(p > 0, 1, -1).astype(np.int8)
+
+    return t_us, x, y, p
+
+# Metrique temporelle par pixel: on regarde la dynamique locale plutot qu un delai global trop grossier.
 def per_pixel_delay_us(t_us, pixel_id, total_pixels):
-    # On cree une case pour chaque pixel du capteur.
-    # Un delai inter-event existe seulement si le pixel a au moins 2 evenements.
+    # On garde une case par pixel, meme si certains pixels ne produisent aucun evenement.
+    # Le delai n est defini que pour les pixels avec au moins deux evenements.
     if t_us.size == 0:
         return np.nan, 0, 0.0
     counts = np.bincount(pixel_id, minlength=total_pixels)
@@ -110,7 +134,7 @@ def per_pixel_delay_us(t_us, pixel_id, total_pixels):
 
 
 def temporal_windows(simulator, sequence, t_us, window_s):
-    # Courbe simple: nombre d'evenements par seconde dans chaque fenetre.
+    # Cette courbe permet de comparer les pics temporels, pas seulement la moyenne globale.
     if t_us.size == 0:
         return []
     t_s = (t_us - t_us.min()) / 1_000_000.0
@@ -128,7 +152,7 @@ def temporal_windows(simulator, sequence, t_us, window_s):
         for i, count in enumerate(counts)
     ]
 
-
+# Calcul par sequence: toutes les metriques sont derivees du meme fichier charge en memoire.
 def compute_one(simulator: str, sequence: str, path: Path, args):
     width, height = resolution(simulator, args)
     total_pixels = width * height
@@ -182,22 +206,30 @@ def compute_one(simulator: str, sequence: str, path: Path, args):
     windows = temporal_windows(simulator, sequence, t_us, args.window_s)
     return metrics, validation, windows
 
-
+# Collecte globale: on parcourt tous les simulateurs et toutes les sequences disponibles.
 def collect(input_root: Path, args):
     rows = []
     validations = []
     temporal_rows = []
+
     for sim_dir in sorted(p for p in input_root.iterdir() if p.is_dir()):
         simulator = sim_dir.name
-        for seq_dir in sorted(p for p in sim_dir.iterdir() if p.is_dir()):
-            path = choose_npz(seq_dir)
+
+        sequence_items = []
+        sequence_items.extend(sorted(p for p in sim_dir.iterdir() if p.is_dir()))
+        sequence_items.extend(sorted(p for p in sim_dir.glob("*.npz")))
+
+        for item in sequence_items:
+            path = choose_npz(item)
             if path is None:
                 continue
-            metrics, validation, windows = compute_one(simulator, seq_dir.name, path, args)
+
+            sequence = item.stem if item.is_file() else item.name
+            metrics, validation, windows = compute_one(simulator, sequence, path, args)
             rows.append(metrics)
             validations.append(validation)
             temporal_rows.extend(windows)
-            print(f"ok {simulator}/{seq_dir.name}")
+            print(f"ok {simulator}/{sequence}")
 
     order = {sim: i for i, sim in enumerate(SIM_ORDER)}
     rows.sort(key=lambda r: (order.get(r["simulator"], 99), r["sequence"]))
@@ -211,7 +243,7 @@ def collect(input_root: Path, args):
     )
     return rows, validations, temporal_rows
 
-
+# Resume statistique: les moyennes ignorent les NaN pour ne pas bloquer une sequence incomplete.
 def mean(values):
     values = np.asarray(values, dtype=np.float64)
     values = values[np.isfinite(values)]
@@ -302,7 +334,7 @@ def add_temporal_summary(summary, temporal_rows):
         item["temporal_window_rmse_vs_vivid"] = mean(errors)
     return summary
 
-
+# Les moyennes globales peuvent masquer les effets dark/global/local/varying; on resume donc aussi par condition.
 def summarize_by_condition(rows):
     grouped = {}
     for row in rows:
@@ -435,7 +467,7 @@ def best_group_sim(summary_rows, group_key, group_value, key, ratio_key=True):
         return min(candidates, key=lambda r: abs(float(r[key]) - 1.0))
     return min(candidates, key=lambda r: abs(float(r[key])))
 
-
+# Critere de proximite: ratio proche de 1 ou difference proche de 0 selon la nature de la metrique.
 METRIC_RULES = [
     ("events/s", "events_per_second_vs_vivid", "ratio"),
     ("events/pixel", "events_per_pixel_vs_vivid", "ratio"),
@@ -493,7 +525,7 @@ def write_csv(path: Path, rows):
         writer.writeheader()
         writer.writerows(rows)
 
-
+# Figures: les barplots restent volontairement simples pour faciliter la lecture scientifique.
 def grouped_bar(rows, key, title, ylabel, out, log=False):
     scenes = sorted({r["sequence"] for r in rows})
     x = np.arange(len(scenes))
@@ -626,377 +658,7 @@ def table(headers, rows):
     lines.extend("| " + " | ".join(row) + " |" for row in rows)
     return lines
 
-
-def write_report(
-    out_dir,
-    rows,
-    summary,
-    condition_summary,
-    regime_summary,
-    closest_global,
-    closest_condition,
-    closest_regime,
-    validations,
-):
-    invalid = [
-        r
-        for r in validations
-        if not (r["same_length"] and r["x_in_bounds"] and r["y_in_bounds"] and r["p_ok"])
-    ]
-    non_mono = [r for r in validations if float(r["monotonic_ratio_sample"]) < 0.99]
-
-    def summary_row(sim):
-        return next(r for r in summary if r["simulator"] == sim)
-
-    vivid = summary_row("vivid")
-    pix2nvs = summary_row("pix2nvs")
-    iebcs = summary_row("iebcs")
-    v2e = summary_row("v2e")
-    vid2e = summary_row("vid2e")
-    closest_global_by_metric = {r["metric"]: r for r in closest_global}
-
-    lines = [
-        "# Comparaison simple des simulateurs",
-        "",
-        "## Objectif",
-        "",
-        "Le but est de comparer VIVID aux simulateurs avec peu de metriques, mais de les lire correctement selon les conditions de scene.",
-        "VIVID est utilise comme reference et reste visible dans chaque figure.",
-        "",
-        "Les metriques principales sont `events/s`, `events/pixel`, `ON ratio` et `pixels utilises`.",
-        "Deux controles temporels completent la lecture: le delai inter-event par pixel et les `events/s` par fenetre temporelle.",
-        "",
-        "## Methode courte",
-        "",
-        "- `events/s = n_events / duree`.",
-        "- `events/pixel = n_events / (largeur * hauteur)`.",
-        "- `ON ratio = n_ON / n_events`.",
-        "- `pixels utilises = pixels_actifs / pixels_totaux`.",
-        "- `delai_pixel = (t_dernier - t_premier) / (n_events_pixel - 1)` pour chaque pixel avec au moins deux evenements.",
-        "",
-        "Le calcul du delai considere bien tous les pixels du capteur. Les pixels avec moins de deux evenements sont comptes, mais ils n'ont pas de delai inter-event defini.",
-        "Les resolutions utilisees sont `240x180` pour VIVID et `346x260` pour les simulateurs.",
-        "",
-        "## Verification rapide",
-        "",
-        f"- Fichiers analyses: {len(validations)}.",
-        f"- Fichiers invalides: {len(invalid)}.",
-        f"- Fichiers avec timestamps non ordonnes sur echantillon: {len(non_mono)}.",
-        "",
-    ]
-
-    if non_mono:
-        lines += [
-            "Les timestamps non ordonnes concernent `pix2nvs`. Les metriques de comptage restent exploitables, mais toute analyse temporelle fine de `pix2nvs` doit rester prudente.",
-            "",
-        ]
-
-    lines += [
-        "## Vue globale des resultats",
-        "",
-    ]
-    lines += table(
-        [
-            "Source",
-            "events/s",
-            "events/pixel",
-            "ON ratio",
-            "pixels utilises",
-            "delai/pixel",
-            "pixels avec delai",
-            "events/s vs VIVID",
-            "events/pixel vs VIVID",
-            "delai vs VIVID",
-            "RMSE fenetres",
-        ],
-        [
-            [
-                r["simulator"],
-                fmt(r["events_per_second"]),
-                fmt(r["events_per_pixel"]),
-                percent(r["on_fraction"]),
-                percent(r["active_pixel_fraction"]),
-                fmt(r["delay_inter_event_per_pixel_us"]),
-                percent(r["pixels_with_delay_fraction"]),
-                fmt(r["events_per_second_vs_vivid"]),
-                fmt(r["events_per_pixel_vs_vivid"]),
-                fmt(r["delay_vs_vivid"]),
-                fmt(r["temporal_window_rmse_vs_vivid"]),
-            ]
-            for r in summary
-        ],
-    )
-
-    lines += [
-        "",
-        "## Critere de proximite",
-        "",
-        "Pour eviter toute ambiguite, le meme critere est applique partout dans le rapport:",
-        "",
-        "- pour un ratio, le plus proche de VIVID minimise `abs(ratio - 1)`;",
-        "- pour une difference en points de pourcentage, le plus proche minimise `abs(diff_pp)`.",
-        "",
-        "Application globale du critere:",
-        "",
-    ]
-    lines += table(
-        ["Metrique", "Plus proche", "Valeur", "Distance", "Critere"],
-        [
-            [
-                r["metric"],
-                r["simulator"],
-                fmt(r["value"]),
-                fmt(r["distance_to_vivid"]),
-                r["criterion"],
-            ]
-            for r in closest_global
-        ],
-    )
-
-    lines += [
-        "",
-        "## Volume d'evenements",
-        "",
-        f"VIVID produit en moyenne `{fmt(vivid['events_per_second'])}` events/s. `pix2nvs` reste le plus proche en volume moyen, meme s'il reste au-dessus de VIVID avec un facteur `{fmt(pix2nvs['events_per_second_vs_vivid'])}`.",
-        f"`v2e` et `vid2e` sont nettement plus eleves: environ `{fmt(v2e['events_per_second_vs_vivid'])}`x et `{fmt(vid2e['events_per_second_vs_vivid'])}`x VIVID.",
-        "Cela suggere une generation d'evenements plus dense, probablement liee aux seuils, au bruit ou a l'interpolation temporelle.",
-        "",
-        "![events/s](figures/01_events_per_second.png)",
-        "",
-        "## Evenements par pixel",
-        "",
-        "Cette metrique corrige la difference de resolution entre VIVID et les simulateurs.",
-        f"Sur la moyenne globale, `pix2nvs` est le plus proche de VIVID avec un facteur `{fmt(pix2nvs['events_per_pixel_vs_vivid'])}`: il est legerement en dessous de VIVID, alors que `iebcs` est au-dessus avec un facteur `{fmt(iebcs['events_per_pixel_vs_vivid'])}`.",
-        "`iebcs` reste interessant car il garde une couverture du capteur tres complete, mais il n'est pas le plus proche globalement sur `events/pixel`.",
-        "`v2e` et `vid2e` restent largement au-dessus, donc l'ecart de volume ne vient pas seulement du nombre de pixels du capteur.",
-        "",
-        "![events/pixel](figures/02_events_per_pixel.png)",
-        "",
-        "## Ratio ON",
-        "",
-        "VIVID a un ratio ON plus bas que la plupart des simulateurs. Les simulateurs tendent souvent vers une polarite plus proche de 50/50.",
-        "Cette difference peut indiquer que les modeles de seuil ON/OFF ou de contraste ne reproduisent pas exactement le desequilibre de VIVID.",
-        "",
-        "![ON ratio](figures/03_on_fraction.png)",
-        "",
-        "## Pixels utilises",
-        "",
-        "La plupart des methodes activent une grande partie du capteur, mais `pix2nvs`, `v2e` et `vid2e` utilisent moins de pixels dans certaines conditions, surtout dans les scenes sombres.",
-        "Cette metrique aide a distinguer un simulateur qui produit beaucoup d'evenements partout d'un simulateur qui concentre l'activite sur moins de pixels.",
-        "",
-        "![pixels utilises](figures/04_active_pixel_fraction.png)",
-        "",
-        "## Delai inter-event par pixel",
-        "",
-        "Le delai inter-event complete la lecture du volume: si un simulateur produit beaucoup plus d'evenements, on s'attend souvent a des delais plus courts.",
-        "`v2e` et `vid2e` ont effectivement des delais beaucoup plus courts que VIVID, ce qui confirme une dynamique plus dense.",
-        "`pix2nvs` est proche de VIVID sur le delai moyen, mais la remarque sur l'ordre temporel reste importante.",
-        "",
-        "![delai inter-event par pixel](figures/05_delay_inter_event_per_pixel.png)",
-        "",
-        "## Events/s par fenetre temporelle",
-        "",
-        "Cette figure montre si les pics d'activite arrivent globalement aux memes moments.",
-        "Elle evite de conclure uniquement a partir d'une moyenne: deux simulateurs peuvent avoir un volume moyen proche mais des pics temporels mal places.",
-        "",
-        "![events/s par fenetre](figures/06_events_per_second_by_temporal_window.png)",
-        "",
-        "## Analyse par condition",
-        "",
-        "Les moyennes globales cachent une partie du comportement. Ici, chaque condition est comparee a VIVID dans la meme condition.",
-        "",
-    ]
-    lines += table(
-        [
-            "Condition",
-            "Source",
-            "events/s vs VIVID",
-            "events/pixel vs VIVID",
-            "ON diff pp",
-            "pixels diff pp",
-            "delai vs VIVID",
-        ],
-        [
-            [
-                r["condition"],
-                r["simulator"],
-                fmt(r["events_per_second_vs_vivid"]),
-                fmt(r["events_per_pixel_vs_vivid"]),
-                fmt(r["on_fraction_diff_pp_vs_vivid"]),
-                fmt(r["active_pixel_diff_pp_vs_vivid"]),
-                fmt(r["delay_vs_vivid"]),
-            ]
-            for r in condition_summary
-        ],
-    )
-
-    lines += [
-        "",
-        "Meilleurs simulateurs par condition avec le critere uniforme:",
-        "",
-    ]
-    lines += table(
-        ["Condition", "Metrique", "Plus proche", "Valeur", "Distance", "Critere"],
-        [
-            [
-                r["group"],
-                r["metric"],
-                r["simulator"],
-                fmt(r["value"]),
-                fmt(r["distance_to_vivid"]),
-                r["criterion"],
-            ]
-            for r in closest_condition
-        ],
-    )
-
-    lines += [
-        "",
-        "Lecture synthetique:",
-        "",
-        "Ici, `plus proche` signifie: ratio le plus proche de `1` pour `events/s`, `events/pixel` et le delai; ecart le plus proche de `0` pour le ratio ON.",
-        "",
-    ]
-    for condition in CONDITION_ORDER:
-        best_rate = best_group_sim(
-            condition_summary, "condition", condition, "events_per_second_vs_vivid", True
-        )
-        best_pixel = best_group_sim(
-            condition_summary, "condition", condition, "events_per_pixel_vs_vivid", True
-        )
-        best_on = best_group_sim(
-            condition_summary, "condition", condition, "on_fraction_diff_pp_vs_vivid", False
-        )
-        if best_rate is None:
-            continue
-        lines += [
-            f"- `{condition}`: plus proche en `events/s`: `{best_rate['simulator']}`; plus proche en `events/pixel`: `{best_pixel['simulator']}`; plus proche en ratio ON: `{best_on['simulator']}`.",
-        ]
-
-    lines += [
-        "",
-        "`dark` met davantage en evidence le bruit et les seuils de declenchement. `global` et `local` revelent surtout les ecarts de volume. `varying` teste la robustesse quand l'intensite change au cours du temps.",
-        "",
-        "## Analyse par regime",
-        "",
-        "Les regimes `aggressive`, `robust` et `unstable` donnent une deuxieme lecture des memes donnees.",
-        "",
-    ]
-    lines += table(
-        [
-            "Regime",
-            "Source",
-            "events/s vs VIVID",
-            "events/pixel vs VIVID",
-            "ON diff pp",
-            "pixels diff pp",
-            "delai vs VIVID",
-        ],
-        [
-            [
-                r["regime"],
-                r["simulator"],
-                fmt(r["events_per_second_vs_vivid"]),
-                fmt(r["events_per_pixel_vs_vivid"]),
-                fmt(r["on_fraction_diff_pp_vs_vivid"]),
-                fmt(r["active_pixel_diff_pp_vs_vivid"]),
-                fmt(r["delay_vs_vivid"]),
-            ]
-            for r in regime_summary
-        ],
-    )
-
-    lines += [
-        "",
-        "Meilleurs simulateurs par regime avec le critere uniforme:",
-        "",
-    ]
-    lines += table(
-        ["Regime", "Metrique", "Plus proche", "Valeur", "Distance", "Critere"],
-        [
-            [
-                r["group"],
-                r["metric"],
-                r["simulator"],
-                fmt(r["value"]),
-                fmt(r["distance_to_vivid"]),
-                r["criterion"],
-            ]
-            for r in closest_regime
-        ],
-    )
-
-    lines += [
-        "",
-        "Lecture synthetique:",
-        "",
-        "Le meme critere est utilise: ratio le plus proche de `1`, ou ecart ON le plus proche de `0`.",
-        "",
-    ]
-    for regime in REGIME_ORDER:
-        best_rate = best_group_sim(
-            regime_summary, "regime", regime, "events_per_second_vs_vivid", True
-        )
-        best_pixel = best_group_sim(
-            regime_summary, "regime", regime, "events_per_pixel_vs_vivid", True
-        )
-        best_on = best_group_sim(
-            regime_summary, "regime", regime, "on_fraction_diff_pp_vs_vivid", False
-        )
-        if best_rate is None:
-            continue
-        lines += [
-            f"- `{regime}`: plus proche en `events/s`: `{best_rate['simulator']}`; plus proche en `events/pixel`: `{best_pixel['simulator']}`; plus proche en ratio ON: `{best_on['simulator']}`.",
-        ]
-
-    lines += [
-        "",
-        "## Conclusion",
-        "",
-        f"Globalement, le plus proche de VIVID est `{closest_global_by_metric['events/s']['simulator']}` pour `events/s`, `{closest_global_by_metric['events/pixel']['simulator']}` pour `events/pixel`, `{closest_global_by_metric['delai']['simulator']}` pour le delai, `{closest_global_by_metric['ON ratio']['simulator']}` pour le ratio ON, et `{closest_global_by_metric['pixels utilises']['simulator']}` pour la couverture de pixels.",
-        "`pix2nvs` ressort donc tres proche sur plusieurs mesures globales. Cette proximite doit toutefois etre lue avec prudence, car ses timestamps ne sont pas toujours ordonnes et sa couverture de pixels est plus faible.",
-        "`iebcs` n'est pas le meilleur sur le volume global, mais il apparait comme un compromis propre: volume modere, ratio ON relativement proche, et couverture quasi complete du capteur.",
-        "`dvs_voltmeter` couvre tres bien le capteur, mais son volume et son ratio ON sont plus eloignes de VIVID.",
-        "`v2e` et `vid2e` produisent beaucoup plus d'evenements que VIVID et des delais inter-event plus courts, ce qui indique une dynamique plus dense.",
-        "",
-        "## Limites possibles",
-        "",
-        "- VIVID est traite comme reference, mais cela ne prouve pas qu'il soit une verite absolue pour toutes les scenes.",
-        "- Les simulateurs n'ont pas forcement ete calibres avec les memes seuils, bruit, latence ou modele de capteur.",
-        "- `events/pixel` corrige la resolution, mais ne corrige pas tous les effets lies a la geometrie ou au champ de vue.",
-        "- Les timestamps non ordonnes de `pix2nvs` limitent les conclusions temporelles fines.",
-        "- Les figures temporelles sont moyennees sur les sequences; une analyse plus poussee pourrait regarder chaque sequence separement.",
-        "",
-        "## Sources utilisees pour interpreter les simulateurs",
-        "",
-        "- v2e: https://github.com/SensorsINI/v2e",
-        "- IEBCS: https://github.com/neuromorphicsystems/IEBCS",
-        "- DVS-Voltmeter: https://www.ecva.net/papers/eccv_2022/papers_ECCV/papers/136670571.pdf",
-        "- PIX2NVS: https://discovery.ucl.ac.uk/id/eprint/10056312/",
-        "- Vid2E: https://openaccess.thecvf.com/content_CVPR_2020/papers/Gehrig_Video_to_Events_Recycling_Video_Datasets_for_Event_Cameras_CVPR_2020_paper.pdf",
-    ]
-
-    (out_dir / "RAPPORT.md").write_text("\n".join(lines), encoding="utf-8")
-
-
-def write_readme(out_dir):
-    (out_dir / "README.md").write_text(
-        """# Comparaison simple
-
-Ouvrir `RAPPORT.md`.
-
-Ce dossier contient une comparaison volontairement courte:
-
-- 4 metriques principales
-- 2 controles temporels
-- 6 figures
-- 9 CSV
-- 1 script reproductible
-""",
-        encoding="utf-8",
-    )
-
-
+# Point entree CLI: on regenere results/ et figures/, puis on copie le script utilise.
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("input_root", type=Path, nargs="?", default=Path("unified_data"))
@@ -1009,11 +671,15 @@ def main():
     args = parser.parse_args()
 
     out_dir = args.output_dir.resolve()
-    if out_dir.exists():
-        shutil.rmtree(out_dir)
-    (out_dir / "figures").mkdir(parents=True)
-    (out_dir / "results").mkdir(parents=True)
-    (out_dir / "scripts").mkdir(parents=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    for subdir in ("figures", "results"):
+        path = out_dir / subdir
+        if path.exists():
+            shutil.rmtree(path)
+        path.mkdir(parents=True)
+
+    (out_dir / "scripts").mkdir(parents=True, exist_ok=True)
 
     rows, validations, temporal_rows = collect(args.input_root.resolve(), args)
     summary = summarize(rows)
@@ -1036,21 +702,12 @@ def main():
     write_csv(out_dir / "results" / "closest_by_regime.csv", closest_regime)
     write_csv(out_dir / "results" / "validation.csv", validations)
     make_figures(rows, temporal_rows, out_dir)
-    write_report(
-        out_dir,
-        rows,
-        summary,
-        condition_summary,
-        regime_summary,
-        closest_global,
-        closest_condition,
-        closest_regime,
-        validations,
-    )
-    write_readme(out_dir)
-    (out_dir / "requirements.txt").write_text("numpy\nmatplotlib\n", encoding="utf-8")
-    shutil.copy2(Path(__file__), out_dir / "scripts" / Path(__file__).name)
-    print(f"wrote {out_dir}")
+
+    script_copy = out_dir / "scripts" / Path(__file__).name
+    if Path(__file__).resolve() != script_copy.resolve():
+        shutil.copy2(Path(__file__), script_copy)
+
+    print(f"wrote figures and csv to {out_dir}")
 
 
 if __name__ == "__main__":
