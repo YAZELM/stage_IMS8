@@ -158,7 +158,7 @@ def save_buffers(path, xs, ys, ts, ps, width, height):
 
     # Les buffers sont concatennes seulement au moment de l'ecriture pour limiter
 
-    # les reallocations pendant la lecture du bag.
+    # les réallocations pendant la lecture du bag.
 
     save_events_npz(
 
@@ -246,7 +246,7 @@ def extract_events(
 
     with open_bag(bag_path) as bag:
 
-        # Le topic peut etre impose par l'utilisateur ou detecte automatiquement.
+       
 
         event_topic = find_topic(bag, "events", event_topic)
 
@@ -286,7 +286,7 @@ def extract_events(
 
             # La sauvegarde periodique se base sur le temps de calcul, pas sur le
 
-            # temps de la sequence. C'est surtout une protection memoire pendant l'extraction.
+            # temps de la sequence. C'est surtout une protection memoire pendant l'extraction. Car dans mon cas j'étais limite par la RAM avant d'être limité par le temps de calcul. Mais cela peut aussi aider a suivre l'avancement de l'extraction sur les longues sequences.
 
             now = time.time()
 
@@ -326,9 +326,9 @@ def extract_events(
 
 
 
-    # Le dernier buffer est toujours ecrit, meme si la fenetre temporelle n'est
+    # Le dernier buffer est toujours ecrit, même si la fenetre temporelle n'est
 
-    # pas complete. Cela evite de perdre la fin de la sequence.
+    # pas complete. Cela evite de perdre la fin de la sequence. 
 
     if len(ts) > 0:
 
@@ -408,7 +408,7 @@ def extract_events(
 
 def main():
 
-    # Interface ligne de commande volontairement courte pour rester utilisable sur Linux.
+
 
     parser = argparse.ArgumentParser(description="Extract DVS events from a ViViD++ ROS bag")
 

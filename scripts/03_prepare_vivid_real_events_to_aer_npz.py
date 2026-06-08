@@ -35,7 +35,7 @@ def write_csv(path: Path, rows: List[Dict]) -> None:
 # Comme pour les simulateurs, le temps et la polarite sont normalises avant la sauvegarde finale.
 def time_to_seconds(t: np.ndarray, unit: str) -> np.ndarray:
     # Les fragments produits par dataset_pipeline utilisent t en secondes.
-    # Si un autre export VIVID est utilise, l unite doit etre indiquee explicitement.
+    # Si un autre export VIVID est utilise, l'unité doit etre indiquee explicitement.
     t = np.asarray(t, dtype=np.float64)
     unit = unit.lower()
     if unit == "s":

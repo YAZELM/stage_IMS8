@@ -2,13 +2,13 @@
 # -*- coding: utf-8 -*-
 """Convertit les sorties brutes des simulateurs vers un format AER commun.
 
-Chaque simulateur ecrit ses evenements avec ses propres fichiers, unites de temps
-et conventions de polarite. Ce script centralise cette normalisation pour obtenir
+Chaque simulateur écrit ses events avec ses propres fichiers, unités de temps
+et conventions de polarité. Ce script centralise cette normalisation pour obtenir
 un `.npz` comparable: `x`, `y`, `t` en secondes et `p` avec 0=OFF, 1=ON.
 """
 from __future__ import annotations
 
-# La liste sert a garder un ordre stable et a eviter de parcourir des dossiers non prevus.
+# La liste sert à garder un ordre stable et a eviter de parcourir des dossiers non prevus.
 
 import argparse
 import csv
@@ -81,7 +81,7 @@ def eprint(*args, **kwargs) -> None:
 def ensure_dir(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
 
-# Normalisation scientifique: polarite et temps doivent avoir la meme convention avant toute comparaison.
+# Normalisation : polarite et temps doivent avoir la meme convention avant toute comparaison.
 def normalize_polarity(p: np.ndarray) -> np.ndarray:
     """Convention unifiée : 0 = OFF, 1 = ON.
 
@@ -604,7 +604,7 @@ def write_summary_csv(rows: List[Dict[str, object]], out_file: Path) -> None:
         for row in rows:
             writer.writerow({k: row.get(k, "") for k in fieldnames})
 
-# Interface CLI: les chemins restent explicites pour que le script soit simple a relancer sous Linux.
+# Interface CLI: les chemins restent explicites pour que le script soit simple a lancer.
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Convert simulator event outputs to unified AER .npz files.")
     parser.add_argument("--sim-root", type=Path, required=True,

@@ -4,14 +4,6 @@
 
 """Inspecte rapidement un ou plusieurs fichiers AER au format NPZ.
 
-
-
-L'outil ne modifie rien: il affiche les cles presentes, le nombre d'evenements,
-
-les bornes spatiales/temporelles et quelques lignes pour verifier que le format
-
-x, y, t, p est bien respecte.
-
 """
 
 from __future__ import annotations

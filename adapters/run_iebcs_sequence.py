@@ -170,9 +170,9 @@ def main():
 
     def to_flux(img):
 
-        # IEBCS attend un flux lumineux. On utilise la luminance L du LUV comme
+        # IEBCS attend un flux lumineux. On utilise la luminance L du LUV comme approximation sobre, puis on applique l'echelle lux definie dans le JSON.
 
-        # approximation sobre, puis on applique l'echelle lux definie dans le JSON.
+        
 
         luv_l = cv2.cvtColor(img, cv2.COLOR_BGR2LUV)[:, :, 0]
 

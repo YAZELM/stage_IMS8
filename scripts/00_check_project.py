@@ -2,9 +2,9 @@
 # -*- coding: utf-8 -*-
 """Controle rapide de la configuration avant de lancer la pipeline.
 
-Le but n est pas de tester les simulateurs en profondeur, mais de detecter tot
-les chemins manquants, les outils Linux necessaires et les interpreteurs Python
-mal configures.
+Le but n'est pas de tester les simulateurs en profondeur, mais de detecter tôt
+les chemins manquants, les outils ncessaires et les interpreteurs Python
+mal configurés.
 """
 from __future__ import annotations
 

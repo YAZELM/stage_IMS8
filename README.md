@@ -714,12 +714,14 @@ Dans cette configuration, `pix2nvs` apparaît comme le simulateur le plus sobre 
 
 Le pipeline fournit maintenant une comparaison sobre et rigoureuse : les données sont validées, les métriques sont calculées de manière explicite, les ratios sont appariés séquence par séquence, et les figures permettent d'interpréter les résultats sans mélanger résolution, durée, polarité et dynamique locale.
 
-La conclusion scientifique raisonnable est la suivante : `pix2nvs` est le meilleur candidat global pour reproduire le volume d'activité de VIVID dans cette configuration, mais il reste trop actif. `dvs_voltmeter` est plus convaincant sur le délai inter-event par pixel et la couverture du capteur. `iebcs` reste pertinent pour le ratio ON. Aucun simulateur ne peut être déclaré strictement équivalent à VIVID sans calibration supplémentaire.
+La conclusion actuel serait la suivante : `pix2nvs` est le meilleur candidat global pour reproduire le volume d'activité de VIVID dans cette configuration, mais il reste trop actif. `dvs_voltmeter` est plus convaincant sur le délai inter-event par pixel et la couverture du capteur. `iebcs` reste pertinent pour le ratio ON. Aucun simulateur ne peut être déclaré strictement équivalent à VIVID sans calibration supplémentaire.
+
+Il faut toutefois rester prudent, car les simulateurs ont été lancés avec leurs paramètres actuels, sans calibration fine spécifique à ce jeu de données. Une suite logique du travail serait donc d'optimiser leurs paramètres afin de vérifier si la proximité avec VIVID s'améliore sur les différentes métriques utilisées ici. Il serait aussi important d'étudier si certains réglages restent robustes d'une situation à l'autre, notamment lorsque la luminosité, la vitesse de la vidéo ou le type de scène changent. Enfin, l'analyse pourrait être renforcée par des tests statistiques complémentaires, pour quantifier plus précisément la proximité entre les simulateurs et la référence réelle.
 
 ### Sources utilisées pour interpréter les simulateurs
 
 - v2e: https://github.com/SensorsINI/v2e
 - IEBCS: https://github.com/neuromorphicsystems/IEBCS
-- DVS-Voltmeter: https://www.ecva.net/papers/eccv_2022/papers_ECCV/papers/136670571.pdf
-- PIX2NVS: https://discovery.ucl.ac.uk/id/eprint/10056312/
-- Vid2E: https://openaccess.thecvf.com/content_CVPR_2020/papers/Gehrig_Video_to_Events_Recycling_Video_Datasets_for_Event_Cameras_CVPR_2020_paper.pdf
+- DVS-Voltmeter: https://github.com/Lynn0306/DVS-Voltmeter
+- PIX2NVS: https://github.com/PIX2NVS/PIX2NVS
+- Vid2E: https://github.com/uzh-rpg/rpg_vid2e

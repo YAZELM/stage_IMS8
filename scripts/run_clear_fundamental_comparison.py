@@ -1,10 +1,7 @@
 #!/usr/bin/env python
 """Calcule les metriques fondamentales entre VIVID et les simulateurs.
 
-Le script regenere uniquement les CSV et les figures. Le rapport Markdown reste
-un document statique, ce qui evite de le modifier par accident quand on relance
-une comparaison. Les commentaires suivent les grandes etapes de l'analyse pour
-rendre les choix de metriques plus faciles a justifier.
+Le script regenere uniquement les CSV et les figures.
 """
 from __future__ import annotations
 
@@ -20,7 +17,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-# Ordre et couleurs fixes: les figures restent comparables d une execution a l autre.
+# Ordre et couleurs fixes: les figures restent comparables d une execution a l'autre.
 SIM_ORDER = ["vivid", "dvs_voltmeter", "iebcs", "pix2nvs", "v2e", "vid2e"]
 SIM_COMPARE_ORDER = [sim for sim in SIM_ORDER if sim != "vivid"]
 COLORS = {
@@ -54,7 +51,7 @@ def sequence_condition(sequence: str):
         regime = "other"
     return family, regime
 
-# Lecture des donnees: on accepte les deux organisations rencontrees pendant le projet.
+# Lecture des données: on accepte les deux organisations rencontrees pendant le projet.
 def choose_npz(path: Path) -> Path | None:
     # Un simulateur peut fournir un dossier par sequence ou directement un fichier .npz.
     if path.is_file() and path.suffix.lower() == ".npz":
@@ -76,7 +73,7 @@ def resolution(simulator: str, args) -> tuple[int, int]:
 
 
 def relative_source_path(path: Path, root: Path) -> str:
-    # Les CSV doivent rester portables sur GitHub: on evite d'y ecrire un chemin local absolu.
+
     try:
         return path.resolve().relative_to(root.resolve()).as_posix()
     except ValueError:

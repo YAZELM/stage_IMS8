@@ -1,10 +1,7 @@
 #!/usr/bin/env python
 """Calcule les metriques fondamentales entre VIVID et les simulateurs.
 
-Le script regenere uniquement les CSV et les figures. Le rapport Markdown reste
-un document statique, ce qui evite de le modifier par accident quand on relance
-une comparaison. Les commentaires suivent les grandes etapes de l'analyse pour
-rendre les choix de metriques plus faciles a justifier.
+Le script regenere uniquement les CSV et les figures.
 """
 from __future__ import annotations
 
@@ -20,7 +17,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-# Ordre et couleurs fixes: les figures restent comparables d une execution a l autre.
+# Ordre et couleurs fixes: les figures restent comparables d'une execution à l'autreeee.
 SIM_ORDER = ["vivid", "dvs_voltmeter", "iebcs", "pix2nvs", "v2e", "vid2e"]
 SIM_COMPARE_ORDER = [sim for sim in SIM_ORDER if sim != "vivid"]
 COLORS = {
@@ -35,7 +32,7 @@ COLORS = {
 CONDITION_ORDER = ["dark", "global", "local", "varying"]
 REGIME_ORDER = ["aggressive", "robust", "unstable"]
 
-# Les noms de sequences portent les conditions experimentales; on les extrait pour analyser par famille.
+# Les noms de sequences portent les conditions experimentales, on les extrait pour analyser par famille.
 def sequence_condition(sequence: str):
     name = sequence.lower()
     family = "other"
@@ -76,7 +73,7 @@ def resolution(simulator: str, args) -> tuple[int, int]:
 
 
 def relative_source_path(path: Path, root: Path) -> str:
-    # Les CSV doivent rester portables sur GitHub: on evite d'y ecrire un chemin local absolu.
+   
     try:
         return path.resolve().relative_to(root.resolve()).as_posix()
     except ValueError:
@@ -110,9 +107,7 @@ def monotonic_ratio_full(t_us: np.ndarray, chunk_size: int = 1_000_000) -> float
 
 
 def load_npz(path: Path):
-    # La comparaison attend uniquement le format AER defini par le projet:
-    # x, y, t, p avec t exprime en secondes. Les conversions amont doivent donc
-    # deja avoir normalise les unites et l ordre des colonnes.
+    # La comparaison attend uniquement le format AER defini par le projet: x, y, t, p avec t exprime en secondes. Les conversions amont doivent don dejaz avoir normalise les unites et l ordre des colonnes.
     data = np.load(path, allow_pickle=False)
     keys = set(data.files)
 
@@ -142,7 +137,7 @@ def load_npz(path: Path):
 
     return t_us, x, y, p
 
-# Metrique temporelle par pixel: on regarde la dynamique locale plutot qu un delai global trop grossier.
+# Metrique temporelle par pixel: on regarde la dynamique locale plutot qu'un delai global trop grossier.
 def per_pixel_delay_us(t_us, pixel_id, total_pixels):
     # On garde une case par pixel, meme si certains pixels ne produisent aucun evenement.
     # Le delai n est defini que pour les pixels avec au moins deux evenements.
@@ -187,7 +182,7 @@ def temporal_windows(simulator, sequence, t_us, window_s):
         for i, count in enumerate(counts)
     ]
 
-# Calcul par sequence: toutes les metriques sont derivees du meme fichier charge en memoire.
+# Calcul par sequence: toutes les metriques sont derivées du meme fichier chargé en memoire.
 def compute_one(simulator: str, sequence: str, path: Path, args):
     width, height = resolution(simulator, args)
     total_pixels = width * height
@@ -279,7 +274,7 @@ def collect(input_root: Path, args):
     )
     return rows, validations, temporal_rows
 
-# Resume statistique: les moyennes ignorent les NaN pour ne pas bloquer une sequence incomplete.
+# Resumé statistique: les moyennes ignorent les NaN pour ne pas bloquer une sequence incomplete.
 def mean(values):
     values = np.asarray(values, dtype=np.float64)
     values = values[np.isfinite(values)]
@@ -297,8 +292,7 @@ def rows_by_sequence(rows):
 
 
 def paired_ratio_mean(sim_rows, vivid_rows, metric):
-    # Comparaison appairee: chaque sequence simulateur est comparee a la meme
-    # sequence VIVID, puis les ratios sont moyennes. Cela evite qu'une sequence
+    # Comparaison appairee: chaque sequence simulateur est comparée à la même sequence VIVID, puis les ratios sont moyennés. Cela evite qu'une sequence
     # plus dense domine indirectement toute la synthese globale.
     vivid_by_sequence = rows_by_sequence(vivid_rows)
     values = []
@@ -402,7 +396,7 @@ def add_temporal_summary(summary, temporal_rows):
         item["temporal_window_rmse_vs_vivid"] = mean(errors)
     return summary
 
-# Les moyennes globales peuvent masquer les effets dark/global/local/varying; on resume donc aussi par condition.
+# Les moyennes globales peuvent masquer les effets dark/global/local/varying. On resume donc aussi par condition.
 def summarize_by_condition(rows):
     grouped = {}
     for row in rows:

@@ -1,11 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""Pipeline principale pour preparer ViViD++ et lancer les simulateurs DVS.
+"""Pipeline principal pour préparer ViViD++ et lancer les simulateurs DVS.
 
-Le script fait trois choses: preparer les entrees RGB, lancer les simulateurs
-externes configures dans le YAML, puis conserver une trace des commandes et des
-temps d execution. Les conversions AER et la comparaison sont faites par les
-scripts du dossier scripts/.
+Le script suit trois étapes simples : préparer les entrées RGB, lancer les
+simulateurs configurés dans le YAML, puis garder une trace des commandes et des
+temps d'exécution. Les conversions AER et la comparaison scientifique sont
+faites ensuite par les scripts du dossier scripts/.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ except ImportError:
     cv2 = None
 
 # ---------------------------------------------------------------------------
-# Petites structures et helpers generaux
+# Petites structures et fonctions utilitaires générales
 # ---------------------------------------------------------------------------
 
 @dataclass
@@ -54,11 +54,11 @@ def save_json(path: Path, obj: Any) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Suivi du temps d execution
+# Suivi du temps d'exécution
 # ---------------------------------------------------------------------------
 
 def format_duration(seconds: float) -> str:
-    """Formate une duree en texte court pour les logs."""
+    """Formate une durée en texte court pour les logs."""
     seconds = max(0.0, float(seconds))
     hours, rem = divmod(seconds, 3600)
     minutes, sec = divmod(rem, 60)
@@ -97,7 +97,7 @@ def load_timing_records(work: Path, run_id: Optional[str] = None) -> List[Dict[s
 
 
 def write_timing_summary(work: Path, run_id: Optional[str] = None) -> Dict[str, Any]:
-    """Construit un resume des temps par phase, simulateur et sequence."""
+    """Construit un résumé des temps par phase, simulateur et séquence."""
     records = load_timing_records(work, run_id=run_id)
 
     total_s = 0.0
@@ -148,7 +148,7 @@ def write_timing_summary(work: Path, run_id: Optional[str] = None) -> Dict[str, 
 def timed_call(work: Path, run_id: str, phase: str, sequence_name: str,
                func: Any, *args: Any, simulator: Optional[str] = None,
                **kwargs: Any) -> Any:
-    """Execute une etape en enregistrant sa duree et son statut."""
+    """Exécute une étape en enregistrant sa durée et son statut."""
     started_at = datetime.now()
     start_perf = time.perf_counter()
     status = "ok"
@@ -186,7 +186,7 @@ def timed_call(work: Path, run_id: str, phase: str, sequence_name: str,
         print(f"[TIMER] {' :: '.join(label_parts)} -> {record['duration']} ({status})")
 
 # ---------------------------------------------------------------------------
-# Commandes externes et fichiers partages
+# Commandes externes et fichiers partagés
 # ---------------------------------------------------------------------------
 
 def run_cmd(cmd: List[str], cwd: Optional[Path] = None, dry_run: bool = False, log_path: Optional[Path] = None) -> None:
@@ -230,7 +230,7 @@ def list_files(root: Path, exts: Iterable[str]) -> List[Path]:
     return sorted([p for p in root.rglob("*") if p.is_file() and p.suffix.lower() in exts_l])
 
 # ---------------------------------------------------------------------------
-# Lecture et preparation des sequences RGB
+# Lecture et préparation des séquences RGB
 # ---------------------------------------------------------------------------
 
 def fps_from_ffprobe(video: Path, fallback: float) -> float:
@@ -258,14 +258,14 @@ def find_timestamp_file_near(path: Path) -> Optional[Path]:
     return sorted(candidates, key=lambda p: (len(str(p)), str(p)))[0] if candidates else None
 
 def parse_timestamps_file(path: Optional[Path], unit: str = "s") -> Optional[List[float]]:
-    """Parse un fichier de timestamps avec une unite declaree explicitement.
+    """Analyse un fichier de timestamps avec une unité déclarée explicitement.
 
     Formats acceptes:
     - timestamp
     - index,timestamp
     - timestamp,filename
     - index,timestamp,filename
-    - valeurs separees par espace, virgule ou point-virgule
+    - valeurs séparées par espace, virgule ou point-virgule
     """
     if path is None:
         return None
@@ -290,8 +290,8 @@ def parse_timestamps_file(path: Optional[Path], unit: str = "s") -> Optional[Lis
                         pass
                 if not nums:
                     continue
-                # Si la ligne ressemble a index,timestamp, on prend la seconde valeur.
-                # Sinon, on prend la derniere valeur numerique, utile pour timestamp,filename.
+                # Si la ligne ressemble à index,timestamp, on prend la seconde valeur.
+                # Sinon, on prend la dernière valeur numérique, utile pour timestamp,filename.
                 if len(nums) >= 2 and abs(nums[0] - round(nums[0])) < 1e-9:
                     vals.append(nums[1])
                 else:
@@ -308,10 +308,10 @@ def parse_timestamps_file(path: Optional[Path], unit: str = "s") -> Optional[Lis
 
 
 def parse_timestamp_records(path: Optional[Path], unit: str = "s") -> List[Dict[str, Any]]:
-    """Lit les timestamps et, si possible, le nom de frame associe.
+    """Lit les timestamps et, si possible, le nom de frame associé.
 
-    Les sorties dataset_pipeline utilisent index,timestamp,frame_name. Quand ce
-    nom est disponible, il devient la source de verite pour appairer image et timestamp.
+    Les sorties de dataset_pipeline utilisent index,timestamp,frame_name. Quand ce
+    nom est disponible, il devient la référence pour associer chaque image au bon timestamp.
     """
     if path is None:
         return []
@@ -417,7 +417,7 @@ def best_image_dir(root: Path, image_exts: List[str], preferred_names: List[str]
     return candidates[0]
 
 def is_extracted_vivid_sequence(seq_dir: Path) -> bool:
-    """Detect the output format used by our ViViD++ extraction pipeline."""
+    """Détecte le format produit par notre pipeline d'extraction ViViD++."""
     return (
         seq_dir.is_dir()
         and (
@@ -428,10 +428,10 @@ def is_extracted_vivid_sequence(seq_dir: Path) -> bool:
 
 
 def discover_extracted_vivid_sequences(root: Path) -> List[Sequence]:
-    """Return sequences from Dataset/outputs/<sequence> preserving sequence names.
+    """Récupère les séquences de Dataset/outputs/<sequence> en gardant leurs noms.
 
-    We prefer frames_rgb when available because it allows using the real RGB
-    timestamps from timestamps/rgb_timestamps.txt.
+    On privilégie frames_rgb quand il existe, car ce dossier permet d'utiliser
+    les vrais timestamps RGB fournis dans timestamps/rgb_timestamps.txt.
     """
     sequences: List[Sequence] = []
     if not root.is_dir():
@@ -624,7 +624,7 @@ def prepared_sequences(cfg: Dict[str, Any]) -> List[Path]:
     return sorted([p for p in root.iterdir() if p.is_dir() and (p / "manifest.json").exists()]) if root.exists() else []
 
 # ---------------------------------------------------------------------------
-# Acces a la configuration des simulateurs
+# Accès à la configuration des simulateurs
 # ---------------------------------------------------------------------------
 
 def python_for(cfg: Dict[str, Any], key: str) -> str:
@@ -700,11 +700,11 @@ def run_v2e(cfg: Dict[str, Any], prepared: Path) -> None:
     run_cmd(cmd, dry_run=cfg["general"].get("dry_run", False), log_path=common_log(work, "v2e", manifest["name"]))
 
 def run_vid2e(cfg: Dict[str, Any], prepared: Path) -> None:
-    """Lance Vid2E via un wrapper local base sur esim_py.
+    """Lance Vid2E via un wrapper local basé sur esim_py.
 
-    Le wrapper n est pas dans les simulateurs externes: il doit etre present dans
-    adapters/. Cette verification explicite evite de lancer une commande partielle
-    ou silencieusement differente de la methode documentee.
+    Le wrapper n'est pas fourni directement par les simulateurs externes : il doit
+    être présent dans adapters/. Cette vérification évite de lancer une commande
+    incomplète ou différente de la méthode documentée.
     """
     simcfg = cfg["vid2e"]
 
@@ -822,7 +822,7 @@ def run_dvs_voltmeter(cfg: Dict[str, Any], prepared: Path) -> None:
 
 def run_pix2nvs(cfg: Dict[str, Any], prepared: Path) -> None:
     """
-    Lance PIX2NVS en reproduisant exactement son usage manuel.
+    Lance PIX2NVS en reproduisant l'organisation qui fonctionne manuellement.
 
     PIX2NVS doit être lancé depuis son propre dossier Linux_user :
     - l'exécutable est dans ce dossier ;
@@ -847,7 +847,7 @@ def run_pix2nvs(cfg: Dict[str, Any], prepared: Path) -> None:
     out.mkdir(parents=True, exist_ok=True)
 
     # ------------------------------------------------------------
-    # 1. Trouver l'exécutable PIX2NVS qui fonctionne manuellement
+    # 1. Trouver l'exécutable PIX2NVS utilisé dans l'installation locale
     # ------------------------------------------------------------
     binary_candidates = [
         repo / "PIX2NVS",
@@ -874,7 +874,7 @@ def run_pix2nvs(cfg: Dict[str, Any], prepared: Path) -> None:
         pass
 
     # ------------------------------------------------------------
-    # 2. Vérifier ffmpeg et ffprobe dans le même dossier
+    # 2. Vérifier que ffmpeg et ffprobe sont disponibles dans le même dossier
     # ------------------------------------------------------------
     for tool in ["ffmpeg", "ffprobe"]:
         tool_path = repo / tool
@@ -892,7 +892,7 @@ def run_pix2nvs(cfg: Dict[str, Any], prepared: Path) -> None:
             pass
 
     # ------------------------------------------------------------
-    # 3. Nettoyer les anciennes entrées/sorties PIX2NVS
+    # 3. Nettoyer les anciennes entrées/sorties pour éviter de mélanger deux runs
     # ------------------------------------------------------------
     input_dir = repo / "input"
 
@@ -916,7 +916,7 @@ def run_pix2nvs(cfg: Dict[str, Any], prepared: Path) -> None:
     input_dir.mkdir(parents=True, exist_ok=True)
 
     # ------------------------------------------------------------
-    # 4. Mettre la vidéo préparée dans input/
+    # 4. Placer la vidéo préparée dans input/, comme attendu par PIX2NVS
     # ------------------------------------------------------------
     input_video = input_dir / f"{manifest['name']}.mp4"
 
@@ -926,7 +926,7 @@ def run_pix2nvs(cfg: Dict[str, Any], prepared: Path) -> None:
         overwrite=True
     )
 
-    # 5. Construire la commande avec les parametres declares dans le YAML.
+    # 5. Construire la commande avec les paramètres déclarés dans le YAML.
     cmd = [
         str(binary),
         "-r", str(p.get("reference", 3)),
@@ -957,7 +957,7 @@ def run_pix2nvs(cfg: Dict[str, Any], prepared: Path) -> None:
         log_path=common_log(work, "pix2nvs", manifest["name"])
     )
 
-    # 7. Archiver les sorties generees dans runs/simulated_events/pix2nvs/<sequence>.
+    # 7. Archiver les sorties générées dans runs/simulated_events/pix2nvs/<sequence>.
     copied = False
 
     for dname in ["events", "Events", "EVENTS"]:
@@ -992,7 +992,7 @@ def run_pix2nvs(cfg: Dict[str, Any], prepared: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Resume final et interface CLI
+# Résumé final et interface CLI
 # ---------------------------------------------------------------------------
 
 def write_summary(cfg: Dict[str, Any]) -> None:

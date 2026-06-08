@@ -4,7 +4,7 @@
 
 Le wrapper garde une interface simple pour la pipeline principale: frames RGB,
 timestamps en secondes et sortie NPZ au format AER `x,y,t,p`. Il ne modifie pas
-les images; il ne fait que transmettre les parametres de simulation a esim_py.
+les images, il ne fait que transmettre les parametres de simulation a esim_py.
 """
 
 import argparse
@@ -15,13 +15,13 @@ import numpy as np
 def save_events_npz(out_path, events):
     """
     esim_py renvoie généralement un tableau Nx4.
-    L'ordre le plus fréquent est : t, x, y, p.
+    L'ordre  est : t, x, y, p.
     On standardise en x, y, t, p.
     """
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # esim_py renvoie habituellement un tableau Nx4 dans l ordre t, x, y, p.
+    # esim_py renvoie  un tableau Nx4 dans l ordre t, x, y, p.
     # On reorganise les colonnes pour rester compatible avec le format AER commun.
     events = np.asarray(events)
 
