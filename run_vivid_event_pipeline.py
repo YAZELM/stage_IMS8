@@ -306,6 +306,89 @@ def parse_timestamps_file(path: Optional[Path], unit: str = "s") -> Optional[Lis
     arr = arr - arr[0]
     return [float(x) for x in arr]
 
+
+def parse_timestamp_records(path: Optional[Path], unit: str = "s") -> List[Dict[str, Any]]:
+    """Lit les timestamps et, si possible, le nom de frame associe.
+
+    Les sorties dataset_pipeline utilisent index,timestamp,frame_name. Quand ce
+    nom est disponible, il devient la source de verite pour appairer image et timestamp.
+    """
+    if path is None:
+        return []
+
+    unit = unit.lower()
+    scale = {"s": 1.0, "ms": 1e-3, "us": 1e-6, "ns": 1e-9}.get(unit)
+    if scale is None:
+        raise ValueError(f"Unite de timestamp inconnue: {unit}. Utiliser s, ms, us ou ns.")
+
+    records: List[Dict[str, Any]] = []
+    image_exts = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                parts = [p.strip() for p in re.split(r"[,;\s]+", line) if p.strip()]
+                numeric = []
+                for idx, part in enumerate(parts):
+                    try:
+                        numeric.append((idx, float(part)))
+                    except ValueError:
+                        pass
+                if not numeric:
+                    continue
+
+                lower_parts = [p.lower() for p in parts]
+                if any(token in lower_parts for token in ("timestamp", "time", "frame_name", "filename")):
+                    continue
+
+                if len(numeric) >= 2 and abs(numeric[0][1] - round(numeric[0][1])) < 1e-9:
+                    timestamp = numeric[1][1]
+                else:
+                    timestamp = numeric[-1][1]
+
+                frame_name = None
+                for part in parts:
+                    candidate = Path(part).name
+                    if Path(candidate).suffix.lower() in image_exts:
+                        frame_name = candidate
+                        break
+                records.append({"timestamp_s": timestamp * scale, "frame_name": frame_name})
+    except Exception:
+        return []
+
+    if len(records) < 2:
+        return []
+
+    t0 = records[0]["timestamp_s"]
+    for rec in records:
+        rec["timestamp_s"] = float(rec["timestamp_s"] - t0)
+    return records
+
+
+def frames_from_timestamp_records(frame_dir: Path, records: List[Dict[str, Any]]) -> Optional[List[Path]]:
+    named_records = [r for r in records if r.get("frame_name")]
+    if not named_records:
+        return None
+
+    files = [p for p in frame_dir.iterdir() if p.is_file()]
+    by_name = {p.name: p for p in files}
+    ordered = []
+    missing = []
+    for rec in named_records:
+        name = Path(str(rec["frame_name"])).name
+        match = by_name.get(name)
+        if match is None:
+            missing.append(name)
+        else:
+            ordered.append(match)
+
+    if missing:
+        preview = ", ".join(missing[:5])
+        raise RuntimeError(f"Timestamps RGB: frames introuvables dans {frame_dir}: {preview}")
+    return ordered
+
 def write_timestamps(seq_dir: Path, n: int, fps: float, timestamps_s: Optional[List[float]]) -> None:
     if timestamps_s is None or len(timestamps_s) < n:
         timestamps_s = [i / fps for i in range(n)]
@@ -415,18 +498,32 @@ def extract_frames_from_video(video: Path, out_dir: Path, overwrite: bool, dry_r
     cmd = ["ffmpeg", "-y" if overwrite else "-n", "-i", str(video), "-vsync", "0", str(out_dir / "frame_%06d.png")]
     run_cmd(cmd, dry_run=dry_run)
 
-def normalize_frame_dir(src_dir: Path, dst_dir: Path, resize: Dict[str, Any], overwrite: bool) -> int:
+def normalize_frame_dir(
+    src_dir: Path,
+    dst_dir: Path,
+    resize: Dict[str, Any],
+    overwrite: bool,
+    ordered_frames: Optional[List[Path]] = None,
+) -> int:
     if cv2 is None:
         raise RuntimeError("opencv-python est nécessaire pour normaliser des images.")
     if dst_dir.exists() and overwrite:
         shutil.rmtree(dst_dir)
     dst_dir.mkdir(parents=True, exist_ok=True)
-    imgs = sorted([p for p in src_dir.iterdir() if p.is_file() and p.suffix.lower() in [".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"]])
+
+    if ordered_frames is None:
+        imgs = sorted([
+            p for p in src_dir.iterdir()
+            if p.is_file() and p.suffix.lower() in [".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"]
+        ])
+    else:
+        imgs = ordered_frames
+
     n = 0
     for img in imgs:
         im = cv2.imread(str(img), cv2.IMREAD_COLOR)
         if im is None:
-            continue
+            raise RuntimeError(f"Frame illisible pendant la préparation: {img}")
         if resize.get("enabled"):
             im = cv2.resize(im, (int(resize["width"]), int(resize["height"])), interpolation=cv2.INTER_AREA)
         cv2.imwrite(str(dst_dir / f"frame_{n:06d}.png"), im)
@@ -459,7 +556,9 @@ def prepare_sequence(seq: Sequence, cfg: Dict[str, Any]) -> Path:
     extract_fps = general.get("extract_fps")
     resize = general["resize"]
     timestamp_unit = str(general.get("timestamp_unit", "s"))
-    timestamps_s = parse_timestamps_file(find_timestamp_file_near(seq.source), unit=timestamp_unit)
+    timestamp_file = find_timestamp_file_near(seq.source)
+    timestamp_records = parse_timestamp_records(timestamp_file, unit=timestamp_unit)
+    timestamps_s = [r["timestamp_s"] for r in timestamp_records] if timestamp_records else None
 
     if seq.kind == "video" and seq.video:
         src_fps = fps_from_ffprobe(seq.video, fps_fallback)
@@ -490,7 +589,10 @@ def prepare_sequence(seq: Sequence, cfg: Dict[str, Any]) -> Path:
             if dt > 0:
                 fps = 1.0 / dt
         if not dry_run:
-            normalize_frame_dir(seq.frame_dir, frames_dir, resize, overwrite)
+            ordered_frames = frames_from_timestamp_records(seq.frame_dir, timestamp_records)
+            if ordered_frames is not None:
+                timestamps_s = [r["timestamp_s"] for r in timestamp_records if r.get("frame_name")]
+            normalize_frame_dir(seq.frame_dir, frames_dir, resize, overwrite, ordered_frames=ordered_frames)
             make_video_from_frames(frames_dir, prepared / "video.mp4", fps, overwrite, dry_run)
     else:
         raise RuntimeError(f"Séquence invalide : {seq}")
@@ -510,6 +612,8 @@ def prepare_sequence(seq: Sequence, cfg: Dict[str, Any]) -> Path:
         "fps": fps,
         "timestamps_s": str((prepared / "timestamps_s.txt").resolve()),
         "timestamps_us": str((prepared / "timestamps_us.txt").resolve()),
+        "timestamp_source": str(timestamp_file.resolve()) if timestamp_file else None,
+        "timestamp_frame_names_used": bool(seq.kind == "frames" and timestamp_records and any(r.get("frame_name") for r in timestamp_records)),
     }
     save_json(prepared / "manifest.json", manifest)
     print(f"[OK] Préparé : {seq.name} ({n_frames} frames, fps={fps:.3f})")

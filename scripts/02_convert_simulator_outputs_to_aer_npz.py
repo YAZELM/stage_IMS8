@@ -63,6 +63,15 @@ class Events:
     raw_format: str
     raw_order: str
     time_unit_in: str
+    input_len_x: int
+    input_len_y: int
+    input_len_t: int
+    input_len_p: int
+    aligned_len: int
+    truncated_events: int
+    invalid_events_removed: int
+    sorted_by_time: bool
+    non_monotonic_before_sort: bool
 
 
 def eprint(*args, **kwargs) -> None:
@@ -159,15 +168,24 @@ def clean_events(
     t = np.asarray(t, dtype=np.float64)
     p = normalize_polarity(np.asarray(p))
 
-    n = min(len(x), len(y), len(t), len(p))
+    input_len_x = len(x)
+    input_len_y = len(y)
+    input_len_t = len(t)
+    input_len_p = len(p)
+    n = min(input_len_x, input_len_y, input_len_t, input_len_p)
+    truncated_events = max(input_len_x, input_len_y, input_len_t, input_len_p) - n
     x, y, t, p = x[:n], y[:n], t[:n], p[:n]
+
+    non_monotonic_before_sort = bool(t.size > 1 and np.any(np.diff(t) < 0))
 
     xf = x.astype(np.float64, copy=False)
     yf = y.astype(np.float64, copy=False)
     mask = np.isfinite(t) & np.isfinite(xf) & np.isfinite(yf) & (xf >= 0) & (yf >= 0)
+    invalid_events_removed = int(n - np.count_nonzero(mask))
     x, y, t, p = x[mask], y[mask], t[mask], p[mask]
 
-    if sort_by_time and t.size > 1:
+    sorted_by_time = bool(sort_by_time and non_monotonic_before_sort)
+    if sorted_by_time:
         order = np.argsort(t, kind="stable")
         x, y, t, p = x[order], y[order], t[order], p[order]
 
@@ -180,8 +198,16 @@ def clean_events(
         raw_format=raw_format,
         raw_order=raw_order,
         time_unit_in=time_unit_in,
+        input_len_x=int(input_len_x),
+        input_len_y=int(input_len_y),
+        input_len_t=int(input_len_t),
+        input_len_p=int(input_len_p),
+        aligned_len=int(n),
+        truncated_events=int(truncated_events),
+        invalid_events_removed=invalid_events_removed,
+        sorted_by_time=sorted_by_time,
+        non_monotonic_before_sort=non_monotonic_before_sort,
     )
-
 
 def save_npz(events: Events, out_file: Path, compress: bool = False) -> None:
     ensure_dir(out_file.parent)
@@ -200,6 +226,15 @@ def save_metadata(events: Events, out_file: Path, simulator: str, sequence: str)
         "time_unit_output": "s",
         "polarity_output": "0=OFF, 1=ON",
         "num_events": int(events.t.size),
+        "input_len_x": events.input_len_x,
+        "input_len_y": events.input_len_y,
+        "input_len_t": events.input_len_t,
+        "input_len_p": events.input_len_p,
+        "aligned_len": events.aligned_len,
+        "truncated_events": events.truncated_events,
+        "invalid_events_removed": events.invalid_events_removed,
+        "sorted_by_time": events.sorted_by_time,
+        "non_monotonic_before_sort": events.non_monotonic_before_sort,
         "duration_s": float(events.t[-1] - events.t[0]) if events.t.size > 1 else 0.0,
         "t_min_s": float(events.t[0]) if events.t.size else None,
         "t_max_s": float(events.t[-1]) if events.t.size else None,
@@ -535,6 +570,15 @@ def convert_one_sequence(
         "source_file": str(used_candidate),
         "output_npz": str(out_npz),
         "num_events": int(events.t.size),
+        "input_len_x": events.input_len_x,
+        "input_len_y": events.input_len_y,
+        "input_len_t": events.input_len_t,
+        "input_len_p": events.input_len_p,
+        "aligned_len": events.aligned_len,
+        "truncated_events": events.truncated_events,
+        "invalid_events_removed": events.invalid_events_removed,
+        "sorted_by_time": events.sorted_by_time,
+        "non_monotonic_before_sort": events.non_monotonic_before_sort,
         "duration_s": float(events.t[-1] - events.t[0]) if events.t.size > 1 else 0.0,
         "num_on": int(np.sum(events.p == 1)),
         "num_off": int(np.sum(events.p == 0)),
@@ -548,7 +592,10 @@ def write_summary_csv(rows: List[Dict[str, object]], out_file: Path) -> None:
     ensure_dir(out_file.parent)
     fieldnames = [
         "simulator", "sequence", "status", "source_file", "output_npz",
-        "num_events", "duration_s", "num_on", "num_off",
+        "num_events", "input_len_x", "input_len_y", "input_len_t", "input_len_p",
+        "aligned_len", "truncated_events", "invalid_events_removed",
+        "sorted_by_time", "non_monotonic_before_sort",
+        "duration_s", "num_on", "num_off",
         "raw_format", "raw_order", "time_unit_in", "error"
     ]
     with out_file.open("w", newline="", encoding="utf-8") as f:

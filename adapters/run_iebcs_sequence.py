@@ -96,7 +96,17 @@ def main():
 
         raise RuntimeError("IEBCS: pas assez de frames.")
 
+    if len(ts_us) < len(frames):
+
+        raise RuntimeError(
+            f"IEBCS: timestamps insuffisants ({len(ts_us)}) pour {len(frames)} frames."
+        )
+
     ts_us = ts_us[:len(frames)]
+
+    if any(t1 <= t0 for t0, t1 in zip(ts_us, ts_us[1:])):
+
+        raise RuntimeError("IEBCS: les timestamps doivent etre strictement croissants.")
 
 
 
